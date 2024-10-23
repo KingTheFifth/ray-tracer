@@ -3,11 +3,13 @@
 
 #include <GL/gl.h>
 #include <GL/glext.h>
+#include <iostream>
 #define MAIN
 #include "GL_utilities.h"
 #include "LittleOBJLoader.h"
 #include "MicroGlut.h"
 #include "VectorUtils4.h"
+#include "sphere.h"
 // uses framework OpenGL
 // uses framework Cocoa
 
@@ -20,6 +22,11 @@ int frame = 0;
 GLuint accumulator, tracer, plain_tex_shader;
 Model *triangle_model;
 FBOstruct *prev_frame, *curr_frame;
+
+GLuint sphere_ubo;
+int num_spheres;
+GLuint sphere_block_binding = 0;
+Sphere spheres[10];
 
 void init(void) {
   dumpInfo();
@@ -52,8 +59,21 @@ void init(void) {
   triangle_model =
       LoadDataToModel((vec3 *)triangle, NULL, (vec2 *)triangle_tex_coords, NULL,
                       triangle_indices, 3, 3);
-
   printError("load models");
+
+  vec4 red = vec4(1.0, 0.0, 0.0, 1.0);
+  vec4 cyan = vec4(0.0, 1.0, 1.0, 1.0);
+  num_spheres = 2;
+  spheres[0] = Sphere{vec3(0.0, 0.0, 2.0), 0.5, Material{red}};
+  spheres[1] = Sphere{vec3(-1.0, 0.0, 4.0), 0.5, Material{cyan}};
+
+  // Create a UBO (uniform buffer object) containing array of spheres
+  glGenBuffers(1, &sphere_ubo);
+  glBindBuffer(GL_UNIFORM_BUFFER, sphere_ubo);
+  glBufferData(GL_UNIFORM_BUFFER, sizeof(Sphere) * num_spheres,
+               (void *)&spheres[0], GL_STATIC_DRAW);
+  glBindBuffer(GL_UNIFORM_BUFFER, 0);
+  printError("generate sphere ubo");
 }
 
 void display(void) {
@@ -63,13 +83,23 @@ void display(void) {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   // Do one round of ray tracing into curr_frame ------------------------------
+
   glUseProgram(tracer);
+
+  // Bind sphere UBO and the corresponding shader block to a common binding
+  // point
+  GLuint sphere_block_index = glGetUniformBlockIndex(tracer, "SphereBlock");
+  glUniformBlockBinding(tracer, sphere_block_index, sphere_block_binding);
+  glBindBufferBase(GL_UNIFORM_BUFFER, sphere_block_binding, sphere_ubo);
+  printError("bind sphere ubo");
+
   useFBO(curr_frame, 0L, 0L);
   glUniform1i(glGetUniformLocation(tracer, "tex_unit"), 0);
-  glUniform1i(glGetUniformLocation(tracer, "NUM_SPHERES"), 0);
+  glUniform1i(glGetUniformLocation(tracer, "NUM_SPHERES"), num_spheres);
   glUniform1f(glGetUniformLocation(tracer, "CAMERA_DEPTH"), DEPTH);
   glUniform1f(glGetUniformLocation(tracer, "ASPECT_RATIO"),
               (GLfloat)initWidth / initHeight);
+
   DrawModel(triangle_model, tracer, "in_position", NULL, "in_tex_coord");
 
   // Accumulate the output image into prev_frame ------------------------------

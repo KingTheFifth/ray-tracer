@@ -20,8 +20,8 @@ struct Hit {
 
 struct Sphere {
   vec3 pos;
-  // Material material;
   float radius;
+  Material material;
   // vec4 PADDING;
 
 };
@@ -44,6 +44,7 @@ Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
       hit.dist = dist;
       hit.pos = ray.pos + ray.dir * dist; 
       hit.normal = normalize(hit.pos - sphere.pos);
+      hit.material = sphere.material;
     }
   }
   return hit;
@@ -69,12 +70,22 @@ void main(void) {
   Ray ray;
   ray.pos = vec3(0.0, 0.0, 0.0);
   ray.dir = normalize(view_pos - ray.pos);
-  
-  Sphere sphere;
-  sphere.pos = vec3(0.0, 0.0, 2.0);
-  sphere.radius = 1.0;
 
-  int did_hit = ray_sphere_intersect(ray, sphere).did_hit;
+  vec4 res_colour = vec4(0.0, 0.0, 0.0, 0.0);
+  for (int i = 0; i < NUM_SPHERES; i++) {
+    Sphere sphere = spheres[i];
+    Hit hit = ray_sphere_intersect(ray, sphere);
+    res_colour += hit.material.colour * hit.did_hit;
+  }
+  
+  // Sphere sphere;
+  // sphere.pos = vec3(0.0, 0.0, 2.0);
+  // sphere.radius = 1.0;
+  // int did_hit = ray_sphere_intersect(ray, sphere).did_hit;
+  // out_colour = vec4(did_hit, did_hit, did_hit, 1.0); 
+
   //out_colour = vec4(view_pos, 1.0);
-  out_colour = vec4(did_hit, did_hit, did_hit, 1.0); 
+
+  // TODO: clamp
+  out_colour = res_colour;
 }

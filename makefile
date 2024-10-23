@@ -7,5 +7,5 @@ ray_tracer : main.cpp $(commondir)GL_utilities.c $(commondir)VectorUtils4.h $(co
 	g++ -Wall -o main.out -I$(commondir) -I./common/Linux -DGL_GLEXT_PROTOTYPES main.cpp $(commondir)GL_utilities.c $(commondir)LoadTGA.c $(commondir)Linux/MicroGlut.c -lXt -lX11 -lGL -lm
 
 clean :
-	rm main
+	rm main.out
 
