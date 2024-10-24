@@ -12,8 +12,10 @@ struct Material {
   float specular_probability;
   vec3 specular_colour;
   float smoothness;
-  vec3 padding;
+  float padding;
   float fuzz;
+  float refraction_index;
+  bool refractive;
 };
 
 struct Hit {
@@ -29,50 +31,7 @@ struct Sphere {
   vec3 pos;
   float radius;
   Material material;
-  // vec4 PADDING;
-
 };
-
-Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
-  Hit hit;
-  hit.did_hit = false;
-
-  // Sphere equation: dot(offs, offs) - r^2 = 0,
-  // offs = sphere.center - ray.dir * t 
-  // Rewritten as quadratic equation in t with coefficients a, b, c
-  vec3 offs = sphere.pos-ray.pos;
-  float a = dot(ray.dir, ray.dir);
-  float b = -2.0 * dot(ray.dir, offs);
-  float c = dot(offs, offs) - sphere.radius*sphere.radius;
-
-  // Discriminant of quadratic equation gives number of solutions i.e. num hits 
-  // negative = no hit, 0 = 1 hit on edge, positive = 2 hits through sphere
-  float discriminant = b * b - 4.0 * a * c;
-  if (discriminant >= 0) {
-
-    // dist >= 0.001 rather than 0.0 is to combat shadow acne caused by 
-    // floating point inaccuracy
-    float dist = (-b-sqrt(discriminant)) / (2.0 * a);
-    if (dist >= 0.001) {
-      hit.did_hit = true;
-      hit.pos = ray.pos + ray.dir * dist; 
-      hit.normal = normalize(hit.pos - sphere.pos);
-      hit.dist = dist;
-      hit.material = sphere.material;
-
-      // hit.front_face = dot(ray.dir, hit.normal) <= 0.0;
-      // hit.normal = float(hit.front_face) *hit.normal + (1.0-float(hit.front_face))* (-hit.normal);
-      //hit.normal = sign(dot(ray.dir, hit.normal)) * hit.normal;
-      // if (hit.front_face) {
-      //   hit.normal = hit.normal;
-      // }
-      // else {
-      //   hit.normal = -hit.normal;
-      // }
-    }
-  }
-  return hit;
-}
 
 // layout (std140, binding = 1) uniform SphereBlock {
 layout (std140) uniform SphereBlock {
@@ -104,10 +63,12 @@ uint wang_hash(inout uint rng_state) {
   return rng_state;
 }
 
+// Returns random float in the range [0, 1]
 float random_float(inout uint state) {
   return float(wang_hash(state)) / 4294967296.0;
 }
 
+// Returns a random float in the range [0, 1] using a normal distribution
 float random_float_normal_distribution(inout uint rng_state) {
   float theta = 2.0 * 3.141592654 * random_float(rng_state);
   float rho = sqrt(-2.0 * log(random_float(rng_state)));
@@ -126,16 +87,20 @@ vec3 random_hemisphere_direction(vec3 normal, inout uint rng_state) {
   return dir * sign(dot(normal, dir));
 }
 
+// Returns random point on unit square
 vec2 sample_square(inout uint rng_state) {
   return vec2(random_float(rng_state)-0.5, random_float(rng_state)-0.5);
 }
 
+// Returns random point on unit circle
 vec2 sample_circle(inout uint rng_state) {
   float angle = random_float(rng_state) * 2.0 * 3.141592654; 
   vec2 point_on_circle = vec2(cos(angle), sin(angle));
   return point_on_circle * sqrt(random_float(rng_state));
 }
 
+// Creates a randomly jittered ray for this pixel
+// Useful for doing multiple ray samples per pixel
 Ray get_ray_sample(vec3 view_pos, inout uint rng_state) {
   Ray ray;
   ray.pos = cam_pos;
@@ -144,10 +109,52 @@ Ray get_ray_sample(vec3 view_pos, inout uint rng_state) {
   return ray;
 }
 
+// Gets the background colour for a ray that does not hit any objects
 vec3 get_background_light(Ray ray) {
   // Calculate a background colour as a nice white to blue gradient along y
   float a = 0.5*(normalize(ray.dir).y+1.0);
   return (1.0-a)*vec3(1.0, 1.0, 1.0)+a*vec3(0.5,0.7,1.0);
+}
+
+Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
+  Hit hit;
+  hit.did_hit = false;
+
+  // Sphere equation: dot(offs, offs) - r^2 = 0,
+  // offs = sphere.center - ray.dir * t 
+  // Rewritten as quadratic equation in t with coefficients a, b, c
+  vec3 offs = sphere.pos-ray.pos;
+  float a = dot(ray.dir, ray.dir);
+  float b = -2.0 * dot(ray.dir, offs);
+  float c = dot(offs, offs) - sphere.radius*sphere.radius;
+
+  // Discriminant of quadratic equation gives number of solutions i.e. num hits 
+  // negative = no hit, 0 = 1 hit on edge, positive = 2 hits through sphere
+  float discriminant = b * b - 4.0 * a * c;
+  if (discriminant >= 0) {
+
+    // dist >= 0.001 rather than 0.0 is to combat shadow acne caused by 
+    // floating point inaccuracy
+    float dist = (-b-sqrt(discriminant)) / (2.0 * a);
+    if (dist >= 0.001) {
+      hit.did_hit = true;
+      hit.pos = ray.pos + ray.dir * dist; 
+      hit.normal = normalize(hit.pos - sphere.pos);
+      hit.dist = dist;
+      hit.material = sphere.material;
+
+      hit.front_face = dot(ray.dir, hit.normal) <= 0.0;
+      // hit.normal = float(hit.front_face) *hit.normal + (1.0-float(hit.front_face))* (-hit.normal);
+      //hit.normal = sign(dot(ray.dir, hit.normal)) * hit.normal;
+      // if (hit.front_face) {
+      //   hit.normal = hit.normal;
+      // }
+      // else {
+      //   hit.normal = -hit.normal;
+      // }
+    }
+  }
+  return hit;
 }
 
 Hit ray_collision(Ray ray) {
@@ -163,8 +170,23 @@ Hit ray_collision(Ray ray) {
     return closest_hit;
 }
 
+// Reflects a vector v in the axis given by vector n
 vec3 reflect(vec3 v, vec3 n) {
   return v - 2.0*dot(v, n) * n;
+}
+
+// Returns the vector v refracted at a boundary between two mediums.
+// n is the normal of the boundary and relative_eta is ratio of refractive
+// indices between the mediums (exited medium over entered medium).
+// The bool possible is set to true if a refraction can happen, and false
+// if total internal reflection occurs instead
+vec3 refract(vec3 v, vec3 n, float relative_eta, out bool possible) {
+  float cos_theta = min(dot(-v, n), 1.0);
+  float sin_theta = sqrt(1.0-cos_theta*cos_theta);
+  possible = relative_eta * sin_theta <= 1.0;
+  vec3 r_out_perp = relative_eta * (v + cos_theta*n);
+  vec3 r_out_parallel = -sqrt(abs(1.0 - dot(r_out_perp, r_out_perp))) * n;
+  return r_out_perp + r_out_parallel;
 }
 
 // Returns the incoming light from this ray
@@ -176,22 +198,29 @@ vec3 trace(Ray ray, inout uint rng_state) {
     Hit closest_hit = ray_collision(ray);
 
     if (closest_hit.did_hit) {
+      ray.pos = closest_hit.pos;
       Material material = closest_hit.material;
 
-
-      // Bounce the ray
-      ray.pos = closest_hit.pos;
+      // Bounce the ray (reflection)
       vec3 diffuse_dir = normalize(closest_hit.normal + random_direction(rng_state));
       vec3 specular_dir = normalize(reflect(ray.dir, closest_hit.normal)) + material.fuzz*random_direction(rng_state);
       float specular_bounce = float(material.specular_probability >= random_float(rng_state));
-      ray.dir = normalize(mix(diffuse_dir, specular_dir, material.smoothness * specular_bounce));
+      vec3 reflect_dir = normalize(mix(diffuse_dir, specular_dir, material.smoothness * specular_bounce));
+
+      // Refract the ray
+      bool can_refract = true;
+      float r_i = material.refraction_index;
+      r_i = mix(r_i, 1.0/r_i, float(closest_hit.front_face));
+      vec3 refract_dir = refract(ray.dir, closest_hit.normal, r_i, can_refract);
+
+      bool refraction = can_refract && material.refractive;
+      ray.dir = mix(reflect_dir, refract_dir, float(refraction));
 
       // Try to catch bad ray directions that would lead to NaN or infinity
       float tol = 0.000001;
       if (abs(ray.dir.x) < tol && abs(ray.dir.y) < tol && abs(ray.dir.z) < tol) {
         ray.dir = closest_hit.normal;
       }
-
 
       // Update light
       vec3 emitted_light = material.emission_colour * material.emission_strength;

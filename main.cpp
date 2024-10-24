@@ -17,7 +17,7 @@
 // Window dimensions, needed for FBOs
 const int initWidth = 800, initHeight = 800;
 const float DEPTH = 1.0f;
-const uint SAMPLES_PER_PIXEL = 40;
+const uint SAMPLES_PER_PIXEL = 20;
 const float SAMPLE_JITTER_STRENGTH = 3.0f;
 const int MAX_BOUNCE_COUNT = 20;
 int frame = 0;
@@ -26,7 +26,7 @@ Model *triangle_model;
 FBOstruct *prev_frame, *curr_frame;
 
 GLuint sphere_ubo;
-const int num_spheres = 7;
+const int num_spheres = 8;
 GLuint sphere_block_binding = 0;
 vec3 black = vec3(0.0, 0.0, 0.0);
 vec3 white = vec3(1.0, 1.0, 1.0);
@@ -42,6 +42,8 @@ Material white_light = Material{black, 100.0f, white, 0.0f, black, 0.0f, 0.0f};
 Material cyan_funky = Material{cyan, 5.0f, green, 0.3f, blue, 0.1f, 0.0f};
 Material gray_metal = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.0f};
 Material gray_fuzz = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.6f};
+Material clear_glass =
+    Material{white, 0.0f, black, 1.0f, white, 1.0f, 0.0f, 1.0f / 1.5f};
 
 Sphere spheres[num_spheres] = {
     Sphere{vec3(1.5, 0.5, -4.0), 0.5, red_glossy},
@@ -51,6 +53,7 @@ Sphere spheres[num_spheres] = {
     Sphere{vec3(0.0, -0.2, -2.0), 0.1, white_light},
     Sphere{vec3(-0.7, -0.25, -3.0), 0.25, gray_metal},
     Sphere{vec3(0.9, -0.5, -4.0), 0.5, gray_fuzz},
+    Sphere{vec3(-0.5, -0.25, -1.0), 0.1, clear_glass},
 };
 
 void init(void) {
