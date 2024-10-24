@@ -17,7 +17,7 @@
 // Window dimensions, needed for FBOs
 const int initWidth = 800, initHeight = 800;
 const float DEPTH = 1.0f;
-const uint SAMPLES_PER_PIXEL = 20;
+const uint SAMPLES_PER_PIXEL = 40;
 const float SAMPLE_JITTER_STRENGTH = 3.0f;
 const int MAX_BOUNCE_COUNT = 20;
 int frame = 0;
@@ -64,21 +64,25 @@ void init(void) {
 
   vec3 black = vec3(0.0, 0.0, 0.0);
   vec3 white = vec3(1.0, 1.0, 1.0);
+  vec3 gray = white * 0.5;
   vec3 red = vec3(1.0, 0.0, 0.0);
   vec3 cyan = vec3(0.0, 0.7, 0.7);
   vec3 green = vec3(0.0, 0.5, 0.0);
   vec4 blue = vec3(0.0, 0.0, 0.5);
-  num_spheres = 5;
-  spheres[0] =
-      Sphere{vec3(1.5, 0.5, -4.0), 0.5, Material{red, 0.0f, red, 0.0f}};
-  spheres[1] =
-      Sphere{vec3(0.4, -0.4, -0.7), 0.1, Material{cyan, 0.0f, black, 0.1f}};
-  spheres[2] =
-      Sphere{vec3(-1.0, -0.25, -2.0), 0.25, Material{green, 0.0f, black, 0.1f}};
-  spheres[3] =
-      Sphere{vec3(0.0, -100.5, -1.0), 100, Material{blue, 0.0f, black, 0.0f}};
-  spheres[4] =
-      Sphere{vec3(0.0, -0.2, -2.0), 0.1, Material{black, 0.0f, white, 100.0f}};
+  Material red_glossy = Material{red, 0.0f, black, 0.3f, white, 0.7f};
+  Material green_matte = Material{green, 0.0f, black, 0.0f, black, 1.0f};
+  Material blue_matte = Material{blue, 0.0f, black, 0.0f, black, 1.0f};
+  Material white_light = Material{black, 100.0f, white, 0.0f, black, 0.0f};
+  Material cyan_funky = Material{cyan, 5.0f, green, 0.3f, blue, 0.1f};
+  Material gray_metal = Material{gray, 0.0f, black, 1.0f, white, 1.0f};
+
+  num_spheres = 6;
+  spheres[0] = Sphere{vec3(1.5, 0.5, -4.0), 0.5, red_glossy};
+  spheres[1] = Sphere{vec3(0.4, -0.4, -0.7), 0.1, green_matte};
+  spheres[2] = Sphere{vec3(-1.0, -0.25, -2.0), 0.25, cyan_funky};
+  spheres[3] = Sphere{vec3(0.0, -100.5, -1.0), 100, blue_matte};
+  spheres[4] = Sphere{vec3(0.0, -0.2, -2.0), 0.1, white_light};
+  spheres[5] = Sphere{vec3(-0.7, -0.25, -3.0), 0.25, gray_metal};
   // spheres[4] =
   //     Sphere{vec3(-0.2, 1.5, -30.0), 7.0, Material{black, 0.0f, white, 1.0}};
 
@@ -155,7 +159,7 @@ int main(int argc, char *argv[]) {
   glutInitWindowSize(initWidth, initHeight);
   glutCreateWindow("GPU Ray tracer");
   glutDisplayFunc(display);
-  glutRepeatingTimer(50);
+  glutRepeatingTimer(20);
 
   init();
   glutMainLoop();

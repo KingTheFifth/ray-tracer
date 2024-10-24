@@ -7,9 +7,11 @@ struct Ray {
 
 struct Material {
   vec3 colour;
-  float PADDING;
-  vec3 emission_colour;
   float emission_strength;
+  vec3 emission_colour;
+  float specular_probability;
+  vec3 specular_colour;
+  float smoothness;
 };
 
 struct Hit {
@@ -159,6 +161,10 @@ Hit ray_collision(Ray ray) {
     return closest_hit;
 }
 
+vec3 reflect(vec3 v, vec3 n) {
+  return v - 2.0*dot(v, n) * n;
+}
+
 // Returns the incoming light from this ray
 vec3 trace(Ray ray, inout uint rng_state) {
   vec3 incoming_light = vec3(0.0, 0.0, 0.0);
@@ -168,10 +174,15 @@ vec3 trace(Ray ray, inout uint rng_state) {
     Hit closest_hit = ray_collision(ray);
 
     if (closest_hit.did_hit) {
+      Material material = closest_hit.material;
+
+
       // Bounce the ray
       ray.pos = closest_hit.pos;
-      ray.dir = normalize(closest_hit.normal + random_direction(rng_state));
-      // ray.dir = random_hemisphere_direction(closest_hit.normal, rng_state);
+      vec3 diffuse_dir = normalize(closest_hit.normal + random_direction(rng_state));
+      vec3 specular_dir = reflect(ray.dir, closest_hit.normal);
+      float specular_bounce = float(material.specular_probability >= random_float(rng_state));
+      ray.dir = normalize(mix(diffuse_dir, specular_dir, material.smoothness * specular_bounce));
 
       // Try to catch bad ray directions that would lead to NaN or infinity
       float tol = 0.000001;
@@ -179,11 +190,11 @@ vec3 trace(Ray ray, inout uint rng_state) {
         ray.dir = closest_hit.normal;
       }
 
+
       // Update light
-      Material material = closest_hit.material;
       vec3 emitted_light = material.emission_colour * material.emission_strength;
       incoming_light += emitted_light * ray_colour;
-      ray_colour *= material.colour;
+      ray_colour *= mix(material.colour, material.specular_colour, specular_bounce);
     }
     else {
       // Ray bounced off into the sky
