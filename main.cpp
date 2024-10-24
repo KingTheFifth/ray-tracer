@@ -21,7 +21,7 @@ const uint SAMPLES_PER_PIXEL = 20;
 const float SAMPLE_JITTER_STRENGTH = 3.0f;
 const int MAX_BOUNCE_COUNT = 20;
 int frame = 0;
-GLuint accumulator, tracer, plain_tex_shader;
+GLuint tracer, plain_tex_shader;
 Model *triangle_model;
 FBOstruct *prev_frame, *curr_frame;
 
@@ -40,7 +40,6 @@ void init(void) {
   printError("GL inits"); // This is merely a vague indication of where
                           // something might be wrong
   // Load and compile shader
-  accumulator = loadShaders("shader.vert", "accumulator.frag");
   tracer = loadShaders("shader.vert", "tracer.frag");
   plain_tex_shader = loadShaders("shader.vert", "plain.frag");
   printError("init shader");
@@ -110,8 +109,8 @@ void display(void) {
   glBindBufferBase(GL_UNIFORM_BUFFER, sphere_block_binding, sphere_ubo);
   printError("bind sphere ubo");
 
-  useFBO(curr_frame, 0L, 0L);
-  glUniform1i(glGetUniformLocation(tracer, "tex_unit"), 0);
+  useFBO(curr_frame, prev_frame, 0L);
+  glUniform1i(glGetUniformLocation(tracer, "prev_frame"), 0);
   glUniform1i(glGetUniformLocation(tracer, "FRAME"), frame);
   glUniform2ui(glGetUniformLocation(tracer, "SCREEN_RESOLUTION"), initWidth,
                initHeight);
@@ -129,20 +128,20 @@ void display(void) {
   DrawModel(triangle_model, tracer, "in_position", NULL, "in_tex_coord");
 
   // Accumulate the output image into prev_frame ------------------------------
-  glUseProgram(accumulator);
-  glUniform1i(glGetUniformLocation(accumulator, "curr_frame"), 0);
-  glUniform1i(glGetUniformLocation(accumulator, "prev_frame"), 1);
-
-  useFBO(prev_frame, curr_frame, prev_frame);
-  glUniform1i(glGetUniformLocation(accumulator, "frame_num"), frame);
-  DrawModel(triangle_model, tracer, "in_position", NULL, "in_tex_coord");
-
-  // Draw result in prev_frame ------------------------------------------------
   glUseProgram(plain_tex_shader);
   glUniform1i(glGetUniformLocation(plain_tex_shader, "tex_unit"), 0);
 
-  // Output to screen frame buffer
-  useFBO(0L, prev_frame, 0L);
+  // Overwrite prev_frame with current frame
+  useFBO(prev_frame, curr_frame, 0L);
+  DrawModel(triangle_model, plain_tex_shader, "in_position", NULL,
+            "in_tex_coord");
+
+  // Draw result to screen ----------------------------------------------------
+  glUseProgram(plain_tex_shader);
+  glUniform1i(glGetUniformLocation(plain_tex_shader, "tex_unit"), 0);
+
+  // Output to screen
+  useFBO(0L, curr_frame, 0L);
   DrawModel(triangle_model, plain_tex_shader, "in_position", NULL,
             "in_tex_coord");
 

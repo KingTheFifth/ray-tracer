@@ -87,6 +87,8 @@ uniform int SAMPLES_PER_PIXEL;
 uniform float SAMPLE_JITTER_STRENGTH;
 uniform int MAX_BOUNCE_COUNT;
 
+uniform sampler2D prev_frame;
+
 const vec3 cam_pos = vec3(0.0, 0.0, 0.0);
 
 uint wang_hash(inout uint rng_state) {
@@ -98,13 +100,7 @@ uint wang_hash(inout uint rng_state) {
   return rng_state;
 }
 
-// PCG
-// TODO: give cred
 float random_float(inout uint state) {
-  // state = state * uint(747796405) + uint(2891336453);
-  // uint result = ((state >> ((state >> uint(28)) + uint(4))) ^ state) * uint(277803737);
-  // result = (result >> uint(22)) ^ result;
-  // return float(result) / 4294967295.0;
   return float(wang_hash(state)) / 4294967296.0;
 }
 
@@ -184,8 +180,6 @@ vec3 trace(Ray ray, inout uint rng_state) {
       }
 
       // Update light
-      // TODO: incoming light should not be set this way, remove line below
-      // incoming_light = 0.5 *vec3(closest_hit.normal.x+1.0,closest_hit.normal.y+1.0,closest_hit.normal.z+1.0);
       Material material = closest_hit.material;
       vec3 emitted_light = material.emission_colour * material.emission_strength;
       incoming_light += emitted_light * ray_colour;
@@ -208,11 +202,11 @@ void main(void) {
   vec3 view_pos = vec3(out_tex_coord * 2.0 - 1.0, -CAMERA_DEPTH);
   view_pos.y = view_pos.y / ASPECT_RATIO;
 
-  // Generate a seed for rng using the view position
+  // Generate a seed for rng using the view position and frame number
+  // This gives each fragment an own unique rng seed that changes every frame
   uvec2 pixel_coord = uvec2(out_tex_coord * vec2(SCREEN_RESOLUTION));
   uint pixel_index = pixel_coord.y * SCREEN_RESOLUTION.x + pixel_coord.x;
   uint rng_state = pixel_index + uint(FRAME) * uint(719393);
-  // uint rng_state = pixel_index;
 
   vec3 incoming_light = vec3(0.0, 0.0, 0.0);
   for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
@@ -227,5 +221,8 @@ void main(void) {
   // res_colour.y = max(min(res_colour.y, 1.0), 0.0);
   // res_colour.z = max(min(res_colour.z, 1.0), 0.0);
   //res_colour.w = max(min(res_colour.w, 1.0), 0.0);
-  out_colour = res_colour;
+
+  // Accumulate an average colour of this pixel using the previous frame
+  float weight = 1.0 / float(FRAME + 1);
+  out_colour = res_colour * weight + (1.0-weight)*texture(prev_frame, out_tex_coord);
 }
