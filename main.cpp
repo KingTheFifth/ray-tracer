@@ -66,8 +66,9 @@ void init(void) {
   vec3 black = vec3(0.0, 0.0, 0.0);
   vec3 white = vec3(1.0, 1.0, 1.0);
   vec3 red = vec3(1.0, 0.0, 0.0);
-  vec3 cyan = vec3(0.0, 1.0, 1.0);
-  vec3 green = vec3(0.0, 1.0, 0.0);
+  vec3 cyan = vec3(0.0, 0.7, 0.7);
+  vec3 green = vec3(0.0, 0.5, 0.0);
+  vec4 blue = vec3(0.0, 0.0, 0.5);
   num_spheres = 5;
   spheres[0] =
       Sphere{vec3(1.5, 0.5, -4.0), 0.5, Material{red, 0.0f, red, 0.0f}};
@@ -76,9 +77,9 @@ void init(void) {
   spheres[2] =
       Sphere{vec3(-1.0, -0.25, -2.0), 0.25, Material{green, 0.0f, black, 0.1f}};
   spheres[3] =
-      Sphere{vec3(0.0, -100.5, -1.0), 100, Material{green, 0.0f, black, 0.0f}};
+      Sphere{vec3(0.0, -100.5, -1.0), 100, Material{blue, 0.0f, black, 0.0f}};
   spheres[4] =
-      Sphere{vec3(0.0, -0.2, -2.0), 0.1, Material{black, 0.0f, white, 1.0f}};
+      Sphere{vec3(0.0, -0.2, -2.0), 0.1, Material{black, 0.0f, white, 100.0f}};
   // spheres[4] =
   //     Sphere{vec3(-0.2, 1.5, -30.0), 7.0, Material{black, 0.0f, white, 1.0}};
 

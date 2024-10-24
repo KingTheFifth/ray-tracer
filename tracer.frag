@@ -46,8 +46,10 @@ Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
   float discriminant = b * b - 4.0 * a * c;
   if (discriminant >= 0) {
 
+    // dist >= 0.001 rather than 0.0 is to combat shadow acne caused by 
+    // floating point inaccuracy
     float dist = (-b-sqrt(discriminant)) / (2.0 * a);
-    if (dist >= 0) {
+    if (dist >= 0.001) {
       hit.did_hit = true;
       hit.pos = ray.pos + ray.dir * dist; 
       hit.normal = normalize(hit.pos - sphere.pos);
@@ -174,6 +176,12 @@ vec3 trace(Ray ray, inout uint rng_state) {
       ray.pos = closest_hit.pos;
       ray.dir = normalize(closest_hit.normal + random_direction(rng_state));
       // ray.dir = random_hemisphere_direction(closest_hit.normal, rng_state);
+
+      // Try to catch bad ray directions that would lead to NaN or infinity
+      float tol = 0.000001;
+      if (abs(ray.dir.x) < tol && abs(ray.dir.y) < tol && abs(ray.dir.z) < tol) {
+        ray.dir = closest_hit.normal;
+      }
 
       // Update light
       // TODO: incoming light should not be set this way, remove line below
