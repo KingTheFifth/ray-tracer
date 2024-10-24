@@ -15,4 +15,15 @@ struct Material {
   float specular_probability;
   vec3 specular_colour;
   float smoothness;
+  vec3 padding;
+  float fuzz;
+
+  Material(vec3 colour, float emission_strength, vec3 emission_colour,
+           float specular_probability, vec3 specular_colour, float smoothness,
+           float fuzz)
+      : colour{colour}, emission_strength{emission_strength},
+        emission_colour{emission_colour},
+        specular_probability{specular_probability},
+        specular_colour{specular_colour}, smoothness{smoothness},
+        padding{vec3(0.0, 0.0, 0.0)}, fuzz{fuzz} {}
 };

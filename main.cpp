@@ -26,9 +26,32 @@ Model *triangle_model;
 FBOstruct *prev_frame, *curr_frame;
 
 GLuint sphere_ubo;
-int num_spheres;
+const int num_spheres = 7;
 GLuint sphere_block_binding = 0;
-Sphere spheres[10];
+vec3 black = vec3(0.0, 0.0, 0.0);
+vec3 white = vec3(1.0, 1.0, 1.0);
+vec3 gray = white * 0.5;
+vec3 red = vec3(1.0, 0.0, 0.0);
+vec3 cyan = vec3(0.0, 0.7, 0.7);
+vec3 green = vec3(0.0, 0.5, 0.0);
+vec4 blue = vec3(0.0, 0.0, 0.5);
+Material red_glossy = Material{red, 0.0f, black, 0.3f, white, 0.7f, 0.0f};
+Material green_matte = Material{green, 0.0f, black, 0.0f, black, 1.0f, 0.0f};
+Material blue_matte = Material{blue, 0.0f, black, 0.0f, black, 1.0f, 0.0f};
+Material white_light = Material{black, 100.0f, white, 0.0f, black, 0.0f, 0.0f};
+Material cyan_funky = Material{cyan, 5.0f, green, 0.3f, blue, 0.1f, 0.0f};
+Material gray_metal = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.0f};
+Material gray_fuzz = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.8f};
+
+Sphere spheres[num_spheres] = {
+    Sphere{vec3(1.5, 0.5, -4.0), 0.5, red_glossy},
+    Sphere{vec3(0.4, -0.4, -0.7), 0.1, green_matte},
+    Sphere{vec3(-1.0, -0.25, -2.0), 0.25, cyan_funky},
+    Sphere{vec3(0.0, -100.5, -1.0), 100, blue_matte},
+    Sphere{vec3(0.0, -0.2, -2.0), 0.1, white_light},
+    Sphere{vec3(-0.7, -0.25, -3.0), 0.25, gray_metal},
+    Sphere{vec3(0.7, -0.25, -3.0), 0.25, gray_fuzz},
+};
 
 void init(void) {
   dumpInfo();
@@ -61,30 +84,6 @@ void init(void) {
       LoadDataToModel((vec3 *)triangle, NULL, (vec2 *)triangle_tex_coords, NULL,
                       triangle_indices, 3, 3);
   printError("load models");
-
-  vec3 black = vec3(0.0, 0.0, 0.0);
-  vec3 white = vec3(1.0, 1.0, 1.0);
-  vec3 gray = white * 0.5;
-  vec3 red = vec3(1.0, 0.0, 0.0);
-  vec3 cyan = vec3(0.0, 0.7, 0.7);
-  vec3 green = vec3(0.0, 0.5, 0.0);
-  vec4 blue = vec3(0.0, 0.0, 0.5);
-  Material red_glossy = Material{red, 0.0f, black, 0.3f, white, 0.7f};
-  Material green_matte = Material{green, 0.0f, black, 0.0f, black, 1.0f};
-  Material blue_matte = Material{blue, 0.0f, black, 0.0f, black, 1.0f};
-  Material white_light = Material{black, 100.0f, white, 0.0f, black, 0.0f};
-  Material cyan_funky = Material{cyan, 5.0f, green, 0.3f, blue, 0.1f};
-  Material gray_metal = Material{gray, 0.0f, black, 1.0f, white, 1.0f};
-
-  num_spheres = 6;
-  spheres[0] = Sphere{vec3(1.5, 0.5, -4.0), 0.5, red_glossy};
-  spheres[1] = Sphere{vec3(0.4, -0.4, -0.7), 0.1, green_matte};
-  spheres[2] = Sphere{vec3(-1.0, -0.25, -2.0), 0.25, cyan_funky};
-  spheres[3] = Sphere{vec3(0.0, -100.5, -1.0), 100, blue_matte};
-  spheres[4] = Sphere{vec3(0.0, -0.2, -2.0), 0.1, white_light};
-  spheres[5] = Sphere{vec3(-0.7, -0.25, -3.0), 0.25, gray_metal};
-  // spheres[4] =
-  //     Sphere{vec3(-0.2, 1.5, -30.0), 7.0, Material{black, 0.0f, white, 1.0}};
 
   // Create a UBO (uniform buffer object) containing array of spheres
   glGenBuffers(1, &sphere_ubo);

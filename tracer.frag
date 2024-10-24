@@ -12,6 +12,8 @@ struct Material {
   float specular_probability;
   vec3 specular_colour;
   float smoothness;
+  vec3 padding;
+  float fuzz;
 };
 
 struct Hit {
@@ -180,7 +182,7 @@ vec3 trace(Ray ray, inout uint rng_state) {
       // Bounce the ray
       ray.pos = closest_hit.pos;
       vec3 diffuse_dir = normalize(closest_hit.normal + random_direction(rng_state));
-      vec3 specular_dir = reflect(ray.dir, closest_hit.normal);
+      vec3 specular_dir = normalize(reflect(ray.dir, closest_hit.normal)) + material.fuzz*random_direction(rng_state);
       float specular_bounce = float(material.specular_probability >= random_float(rng_state));
       ray.dir = normalize(mix(diffuse_dir, specular_dir, material.smoothness * specular_bounce));
 

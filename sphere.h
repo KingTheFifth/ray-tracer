@@ -8,4 +8,6 @@ struct Sphere {
   float radius;
   Material material;
   // vec4 PADDING;
+  Sphere(vec3 pos, float radius, Material material)
+      : pos{pos}, radius{radius}, material{material} {}
 };
