@@ -6,5 +6,8 @@
 #include "VectorUtils4.h"
 
 struct Material {
-  vec4 colour;
+  vec3 colour;
+  float PADDING;
+  vec3 emission_colour;
+  float emission_strength;
 };

@@ -6,16 +6,19 @@ struct Ray {
 };
 
 struct Material {
-  vec4 colour;
+  vec3 colour;
+  float PADDING;
+  vec3 emission_colour;
+  float emission_strength;
 };
 
 struct Hit {
-  int did_hit;
+  bool did_hit;
   vec3 pos;
   vec3 normal;
-  Material material;
   float dist;
   bool front_face;
+  Material material;
 };
 
 struct Sphere {
@@ -28,23 +31,32 @@ struct Sphere {
 
 Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
   Hit hit;
-  hit.did_hit = 0;
+  hit.did_hit = false;
 
-  vec3 offs = ray.pos - sphere.pos;
+  // Sphere equation: dot(offs, offs) - r^2 = 0,
+  // offs = sphere.center - ray.dir * t 
+  // Rewritten as quadratic equation in t with coefficients a, b, c
+  vec3 offs = sphere.pos-ray.pos;
   float a = dot(ray.dir, ray.dir);
-  float b = 2.0 * dot(offs, ray.dir);
+  float b = -2.0 * dot(ray.dir, offs);
   float c = dot(offs, offs) - sphere.radius*sphere.radius;
 
+  // Discriminant of quadratic equation gives number of solutions i.e. num hits 
+  // negative = no hit, 0 = 1 hit on edge, positive = 2 hits through sphere
   float discriminant = b * b - 4.0 * a * c;
-
   if (discriminant >= 0) {
+
     float dist = (-b-sqrt(discriminant)) / (2.0 * a);
     if (dist >= 0) {
-      hit.did_hit = 1;
-      hit.dist = dist;
+      hit.did_hit = true;
       hit.pos = ray.pos + ray.dir * dist; 
-      hit.normal = normalize(hit.pos - sphere.pos);
+      hit.normal = (hit.pos - sphere.pos)/sphere.radius;
+      hit.dist = dist;
       hit.material = sphere.material;
+
+      hit.front_face = dot(ray.dir, hit.normal) < 0.0;
+      hit.normal = float(hit.front_face) *hit.normal + (1.0-float(hit.front_face))* (-hit.normal);
+      //hit.normal = sign(dot(ray.dir, hit.normal)) * hit.normal;
     }
   }
   return hit;
@@ -58,34 +70,132 @@ layout (std140) uniform SphereBlock {
 in vec2 out_tex_coord;
 out vec4 out_colour;
 
+uniform uvec2 SCREEN_RESOLUTION;
+uniform int FRAME;
 uniform int NUM_SPHERES;
 uniform float CAMERA_DEPTH;
 uniform float ASPECT_RATIO;
+uniform int SAMPLES_PER_PIXEL;
+uniform float SAMPLE_JITTER_STRENGTH;
+uniform int MAX_BOUNCE_COUNT;
+
+const vec3 cam_pos = vec3(0.0, 0.0, 0.0);
+
+// PCG
+// TODO: give cred
+float random_float(inout uint state) {
+  state = state * uint(747796405) + uint(2891336453);
+  uint result = ((state >> ((state >> uint(28)) + uint(4))) ^ state) * uint(277803737);
+  result = (result >> uint(22)) ^ result;
+  return float(result) / 4294967295.0;
+}
+
+float random_float_normal_distribution(inout uint rng_state) {
+  float theta = 2.0 * 3.141592654 * random_float(rng_state);
+  float rho = sqrt(-2.0 * log(random_float(rng_state)));
+  return rho * cos(theta);
+}
+
+vec3 random_direction(inout uint rng_state) {
+  float x = random_float_normal_distribution(rng_state);
+  float y = random_float_normal_distribution(rng_state);
+  float z = random_float_normal_distribution(rng_state);
+  return normalize(vec3(x, y, z));
+ }
+
+vec3 random_hemisphere_direction(vec3 normal, inout uint rng_state) {
+  vec3 dir = random_direction(rng_state);
+  return dir * sign(dot(normal, dir));
+}
+
+vec2 sample_square(inout uint rng_state) {
+  return vec2(random_float(rng_state)-0.5, random_float(rng_state)-0.5);
+}
+
+vec2 sample_circle(inout uint rng_state) {
+  float angle = random_float(rng_state) * 2.0 * 3.141592654; 
+  vec2 point_on_circle = vec2(cos(angle), sin(angle));
+  return point_on_circle * sqrt(random_float(rng_state));
+}
+
+Ray get_ray_sample(vec3 view_pos, inout uint rng_state) {
+  Ray ray;
+  ray.pos = cam_pos;
+  vec3 jitter = vec3(sample_square(rng_state), 0.0) * SAMPLE_JITTER_STRENGTH / float(SCREEN_RESOLUTION.x);
+  ray.dir = normalize(view_pos+jitter-ray.pos);
+  return ray;
+}
+
+vec3 get_background_light(Ray ray) {
+  // Calculate a background colour as a nice white to blue gradient along y
+  float a = 0.5*(normalize(ray.dir).y+1.0);
+  return (1.0-a)*vec3(1.0, 1.0, 1.0)+a*vec3(0.5,0.7,1.0);
+}
+
+// Returns the incoming light from this ray
+vec3 trace(Ray ray, inout uint rng_state) {
+    vec3 incoming_light = vec3(0.0, 0.0, 0.0);
+    vec3 ray_colour = vec3(1.0, 1.0, 1.0);
+
+    for (int b = 0; b < MAX_BOUNCE_COUNT; b++) {
+      Hit closest_hit;
+      closest_hit.did_hit = false;
+      closest_hit.dist = 9999999.0;
+      for (int i = 0; i < NUM_SPHERES; i++) {
+        Hit hit = ray_sphere_intersect(ray, spheres[i]);
+        if (hit.did_hit && hit.dist < closest_hit.dist) {
+          closest_hit = hit;
+        }
+      }
+
+      if (closest_hit.did_hit) {
+        // Bounce the ray
+        //ray.pos = closest_hit.pos;
+        //ray.dir = random_hemisphere_direction(closest_hit.normal, rng_state);
+        //ray.dir = closest_hit.normal;
+
+        incoming_light += 0.5 *vec3(closest_hit.normal.x+1.0,closest_hit.normal.y+1.0,closest_hit.normal.z+1.0);
+        // Material material = closest_hit.material;
+        // vec3 emitted_light = material.emission_colour * material.emission_strength;
+        // incoming_light += emitted_light * ray_colour;
+        //incoming_light = material.colour;
+        //ray_colour *= material.colour;
+      }
+      else {
+        // Ray bounced off into the sky
+        //incoming_light += get_background_light(ray) * ray_colour;
+        incoming_light += get_background_light(ray);
+        break;
+      }
+    }
+    return incoming_light;
+}
 
 void main(void) {
-  vec3 view_pos = vec3(out_tex_coord * 2.0 - 1.0, CAMERA_DEPTH);
+  // Get position of this fragment in view space
+  // Note that the depth is set so that each fragment resides in a plane 
+  // perpendicular to the camera
+  vec3 view_pos = vec3(out_tex_coord * 2.0 - 1.0, -CAMERA_DEPTH);
   view_pos.y = view_pos.y / ASPECT_RATIO;
 
+  // Generate a seed for rng using the view position
+  uvec2 pixel_coord = uvec2(out_tex_coord * vec2(SCREEN_RESOLUTION));
+  uint pixel_index = pixel_coord.y * SCREEN_RESOLUTION.x + pixel_coord.x;
+  uint rng_state = pixel_index + uint(FRAME) * uint(719393);
 
-  Ray ray;
-  ray.pos = vec3(0.0, 0.0, 0.0);
-  ray.dir = normalize(view_pos - ray.pos);
-
-  vec4 res_colour = vec4(0.0, 0.0, 0.0, 0.0);
-  for (int i = 0; i < NUM_SPHERES; i++) {
-    Sphere sphere = spheres[i];
-    Hit hit = ray_sphere_intersect(ray, sphere);
-    res_colour += hit.material.colour * hit.did_hit;
+  vec3 incoming_light = vec3(0.0, 0.0, 0.0);
+  for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
+    Ray ray = get_ray_sample(view_pos, rng_state);
+    // ray.dir = normalize(view_pos - ray.pos);
+    incoming_light += trace(ray, rng_state);
   }
-  
-  // Sphere sphere;
-  // sphere.pos = vec3(0.0, 0.0, 2.0);
-  // sphere.radius = 1.0;
-  // int did_hit = ray_sphere_intersect(ray, sphere).did_hit;
-  // out_colour = vec4(did_hit, did_hit, did_hit, 1.0); 
 
-  //out_colour = vec4(view_pos, 1.0);
+  vec4 res_colour = vec4(incoming_light / float(SAMPLES_PER_PIXEL), 1.0);
 
-  // TODO: clamp
+  // Clamp
+  res_colour.x = max(min(res_colour.x, 1.0), 0.0);
+  res_colour.y = max(min(res_colour.y, 1.0), 0.0);
+  res_colour.z = max(min(res_colour.z, 1.0), 0.0);
+  //res_colour.w = max(min(res_colour.w, 1.0), 0.0);
   out_colour = res_colour;
 }

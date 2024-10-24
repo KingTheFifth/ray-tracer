@@ -14,6 +14,10 @@ void main(void) {
 
   float weight = 1.0 / (frame_num + 1);
   vec4 res_colour = prev_colour * (1 - weight) + colour * weight;
-  res_colour = max(min(res_colour, 1.0), 0.0);
+  res_colour.x = max(min(res_colour.x, 1.0), 0.0);
+  res_colour.y = max(min(res_colour.y, 1.0), 0.0);
+  res_colour.z = max(min(res_colour.z, 1.0), 0.0);
+  res_colour.w = max(min(res_colour.w, 1.0), 0.0);
+
   gl_FragColor = vec4(out_tex_coord, 0.0, 1.0);
 }
