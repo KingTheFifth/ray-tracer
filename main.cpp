@@ -41,7 +41,7 @@ Material blue_matte = Material{blue, 0.0f, black, 0.0f, black, 1.0f, 0.0f};
 Material white_light = Material{black, 100.0f, white, 0.0f, black, 0.0f, 0.0f};
 Material cyan_funky = Material{cyan, 5.0f, green, 0.3f, blue, 0.1f, 0.0f};
 Material gray_metal = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.0f};
-Material gray_fuzz = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.8f};
+Material gray_fuzz = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.6f};
 
 Sphere spheres[num_spheres] = {
     Sphere{vec3(1.5, 0.5, -4.0), 0.5, red_glossy},
@@ -50,7 +50,7 @@ Sphere spheres[num_spheres] = {
     Sphere{vec3(0.0, -100.5, -1.0), 100, blue_matte},
     Sphere{vec3(0.0, -0.2, -2.0), 0.1, white_light},
     Sphere{vec3(-0.7, -0.25, -3.0), 0.25, gray_metal},
-    Sphere{vec3(0.7, -0.25, -3.0), 0.25, gray_fuzz},
+    Sphere{vec3(0.9, -0.5, -4.0), 0.5, gray_fuzz},
 };
 
 void init(void) {

@@ -230,9 +230,9 @@ void main(void) {
   vec4 res_colour = vec4(incoming_light / float(SAMPLES_PER_PIXEL), 1.0);
 
   // Clamp
-  // res_colour.x = max(min(res_colour.x, 1.0), 0.0);
-  // res_colour.y = max(min(res_colour.y, 1.0), 0.0);
-  // res_colour.z = max(min(res_colour.z, 1.0), 0.0);
+  res_colour.x = max(min(res_colour.x, 1.0), 0.0);
+  res_colour.y = max(min(res_colour.y, 1.0), 0.0);
+  res_colour.z = max(min(res_colour.z, 1.0), 0.0);
   //res_colour.w = max(min(res_colour.w, 1.0), 0.0);
 
   // Accumulate an average colour of this pixel using the previous frame
