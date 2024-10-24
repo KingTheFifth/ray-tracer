@@ -17,9 +17,9 @@
 // Window dimensions, needed for FBOs
 const int initWidth = 800, initHeight = 800;
 const float DEPTH = 1.0f;
-const uint SAMPLES_PER_PIXEL = 100;
+const uint SAMPLES_PER_PIXEL = 20;
 const float SAMPLE_JITTER_STRENGTH = 3.0f;
-const int MAX_BOUNCE_COUNT = 1;
+const int MAX_BOUNCE_COUNT = 20;
 int frame = 0;
 GLuint accumulator, tracer, plain_tex_shader;
 Model *triangle_model;
@@ -42,7 +42,7 @@ void init(void) {
   // Load and compile shader
   accumulator = loadShaders("shader.vert", "accumulator.frag");
   tracer = loadShaders("shader.vert", "tracer.frag");
-  plain_tex_shader = loadShaders("shader_cursed.vert", "plain.frag");
+  plain_tex_shader = loadShaders("shader.vert", "plain.frag");
   printError("init shader");
 
   // Set up FBOs
@@ -70,15 +70,17 @@ void init(void) {
   vec3 green = vec3(0.0, 1.0, 0.0);
   num_spheres = 5;
   spheres[0] =
-      Sphere{vec3(1.5, 0.5, -4.0), 0.5, Material{red, 0.0f, black, 1.0f}};
+      Sphere{vec3(1.5, 0.5, -4.0), 0.5, Material{red, 0.0f, red, 0.0f}};
   spheres[1] =
-      Sphere{vec3(0.25, 0.0, -2.0), 0.5, Material{cyan, 0.0f, black, 1.0f}};
+      Sphere{vec3(0.4, -0.4, -0.7), 0.1, Material{cyan, 0.0f, black, 0.1f}};
   spheres[2] =
-      Sphere{vec3(-1.0, 0.0, -2.0), 0.25, Material{green, 0.0f, black, 1.0f}};
+      Sphere{vec3(-1.0, -0.25, -2.0), 0.25, Material{green, 0.0f, black, 0.1f}};
   spheres[3] =
-      Sphere{vec3(0.0, -100.5, -1.0), 100, Material{green, 0.0f, black, 0.1f}};
+      Sphere{vec3(0.0, -100.5, -1.0), 100, Material{green, 0.0f, black, 0.0f}};
   spheres[4] =
-      Sphere{vec3(-0.25, -0.1, -0.5), 0.1, Material{black, 0.0f, white, 1.0f}};
+      Sphere{vec3(0.0, -0.2, -2.0), 0.1, Material{black, 0.0f, white, 1.0f}};
+  // spheres[4] =
+  //     Sphere{vec3(-0.2, 1.5, -30.0), 7.0, Material{black, 0.0f, white, 1.0}};
 
   // Create a UBO (uniform buffer object) containing array of spheres
   glGenBuffers(1, &sphere_ubo);
@@ -153,7 +155,7 @@ int main(int argc, char *argv[]) {
   glutInitWindowSize(initWidth, initHeight);
   glutCreateWindow("GPU Ray tracer");
   glutDisplayFunc(display);
-  // glutRepeatingTimer(50);
+  glutRepeatingTimer(50);
 
   init();
   glutMainLoop();

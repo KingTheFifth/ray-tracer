@@ -50,13 +50,19 @@ Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
     if (dist >= 0) {
       hit.did_hit = true;
       hit.pos = ray.pos + ray.dir * dist; 
-      hit.normal = (hit.pos - sphere.pos)/sphere.radius;
+      hit.normal = normalize(hit.pos - sphere.pos);
       hit.dist = dist;
       hit.material = sphere.material;
 
-      hit.front_face = dot(ray.dir, hit.normal) < 0.0;
-      hit.normal = float(hit.front_face) *hit.normal + (1.0-float(hit.front_face))* (-hit.normal);
+      // hit.front_face = dot(ray.dir, hit.normal) <= 0.0;
+      // hit.normal = float(hit.front_face) *hit.normal + (1.0-float(hit.front_face))* (-hit.normal);
       //hit.normal = sign(dot(ray.dir, hit.normal)) * hit.normal;
+      // if (hit.front_face) {
+      //   hit.normal = hit.normal;
+      // }
+      // else {
+      //   hit.normal = -hit.normal;
+      // }
     }
   }
   return hit;
@@ -81,13 +87,23 @@ uniform int MAX_BOUNCE_COUNT;
 
 const vec3 cam_pos = vec3(0.0, 0.0, 0.0);
 
+uint wang_hash(inout uint rng_state) {
+  rng_state = uint(rng_state ^ uint(61)) ^ uint(rng_state >> uint(16));
+  rng_state *= uint(9);
+  rng_state = rng_state ^ (rng_state >> 4);
+  rng_state *= uint(0x27d4eb2d);
+  rng_state = rng_state ^ (rng_state >> 15);
+  return rng_state;
+}
+
 // PCG
 // TODO: give cred
 float random_float(inout uint state) {
-  state = state * uint(747796405) + uint(2891336453);
-  uint result = ((state >> ((state >> uint(28)) + uint(4))) ^ state) * uint(277803737);
-  result = (result >> uint(22)) ^ result;
-  return float(result) / 4294967295.0;
+  // state = state * uint(747796405) + uint(2891336453);
+  // uint result = ((state >> ((state >> uint(28)) + uint(4))) ^ state) * uint(277803737);
+  // result = (result >> uint(22)) ^ result;
+  // return float(result) / 4294967295.0;
+  return float(wang_hash(state)) / 4294967296.0;
 }
 
 float random_float_normal_distribution(inout uint rng_state) {
@@ -132,43 +148,49 @@ vec3 get_background_light(Ray ray) {
   return (1.0-a)*vec3(1.0, 1.0, 1.0)+a*vec3(0.5,0.7,1.0);
 }
 
-// Returns the incoming light from this ray
-vec3 trace(Ray ray, inout uint rng_state) {
-    vec3 incoming_light = vec3(0.0, 0.0, 0.0);
-    vec3 ray_colour = vec3(1.0, 1.0, 1.0);
-
-    for (int b = 0; b < MAX_BOUNCE_COUNT; b++) {
-      Hit closest_hit;
-      closest_hit.did_hit = false;
-      closest_hit.dist = 9999999.0;
-      for (int i = 0; i < NUM_SPHERES; i++) {
-        Hit hit = ray_sphere_intersect(ray, spheres[i]);
-        if (hit.did_hit && hit.dist < closest_hit.dist) {
-          closest_hit = hit;
-        }
-      }
-
-      if (closest_hit.did_hit) {
-        // Bounce the ray
-        //ray.pos = closest_hit.pos;
-        //ray.dir = random_hemisphere_direction(closest_hit.normal, rng_state);
-        //ray.dir = closest_hit.normal;
-
-        incoming_light += 0.5 *vec3(closest_hit.normal.x+1.0,closest_hit.normal.y+1.0,closest_hit.normal.z+1.0);
-        // Material material = closest_hit.material;
-        // vec3 emitted_light = material.emission_colour * material.emission_strength;
-        // incoming_light += emitted_light * ray_colour;
-        //incoming_light = material.colour;
-        //ray_colour *= material.colour;
-      }
-      else {
-        // Ray bounced off into the sky
-        //incoming_light += get_background_light(ray) * ray_colour;
-        incoming_light += get_background_light(ray);
-        break;
+Hit ray_collision(Ray ray) {
+    Hit closest_hit;
+    closest_hit.did_hit = false;
+    closest_hit.dist = 9999999999.0;
+    for (int i = 0; i < NUM_SPHERES; i++) {
+      Hit hit = ray_sphere_intersect(ray, spheres[i]);
+      if (hit.did_hit && hit.dist < closest_hit.dist) {
+        closest_hit = hit;
       }
     }
-    return incoming_light;
+    return closest_hit;
+}
+
+// Returns the incoming light from this ray
+vec3 trace(Ray ray, inout uint rng_state) {
+  vec3 incoming_light = vec3(0.0, 0.0, 0.0);
+  vec3 ray_colour = vec3(1.0, 1.0, 1.0);
+
+  for (int b = 0; b < MAX_BOUNCE_COUNT; b++) {
+    Hit closest_hit = ray_collision(ray);
+
+    if (closest_hit.did_hit) {
+      // Bounce the ray
+      ray.pos = closest_hit.pos;
+      ray.dir = normalize(closest_hit.normal + random_direction(rng_state));
+      // ray.dir = random_hemisphere_direction(closest_hit.normal, rng_state);
+
+      // Update light
+      // TODO: incoming light should not be set this way, remove line below
+      // incoming_light = 0.5 *vec3(closest_hit.normal.x+1.0,closest_hit.normal.y+1.0,closest_hit.normal.z+1.0);
+      Material material = closest_hit.material;
+      vec3 emitted_light = material.emission_colour * material.emission_strength;
+      incoming_light += emitted_light * ray_colour;
+      ray_colour *= material.colour;
+    }
+    else {
+      // Ray bounced off into the sky
+      incoming_light += get_background_light(ray) * ray_colour;
+      break;
+    }
+  }
+
+  return incoming_light;
 }
 
 void main(void) {
@@ -182,20 +204,20 @@ void main(void) {
   uvec2 pixel_coord = uvec2(out_tex_coord * vec2(SCREEN_RESOLUTION));
   uint pixel_index = pixel_coord.y * SCREEN_RESOLUTION.x + pixel_coord.x;
   uint rng_state = pixel_index + uint(FRAME) * uint(719393);
+  // uint rng_state = pixel_index;
 
   vec3 incoming_light = vec3(0.0, 0.0, 0.0);
   for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
     Ray ray = get_ray_sample(view_pos, rng_state);
-    // ray.dir = normalize(view_pos - ray.pos);
     incoming_light += trace(ray, rng_state);
   }
 
   vec4 res_colour = vec4(incoming_light / float(SAMPLES_PER_PIXEL), 1.0);
 
   // Clamp
-  res_colour.x = max(min(res_colour.x, 1.0), 0.0);
-  res_colour.y = max(min(res_colour.y, 1.0), 0.0);
-  res_colour.z = max(min(res_colour.z, 1.0), 0.0);
+  // res_colour.x = max(min(res_colour.x, 1.0), 0.0);
+  // res_colour.y = max(min(res_colour.y, 1.0), 0.0);
+  // res_colour.z = max(min(res_colour.z, 1.0), 0.0);
   //res_colour.w = max(min(res_colour.w, 1.0), 0.0);
   out_colour = res_colour;
 }
