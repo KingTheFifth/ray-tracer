@@ -175,15 +175,25 @@ vec3 reflect(vec3 v, vec3 n) {
   return v - 2.0*dot(v, n) * n;
 }
 
+float reflectance(float cos_theta, float refraction_index) {
+  float r0 = (1.0 - refraction_index) / (1.0 + refraction_index);
+  r0 = r0*r0;
+  return r0 + (1.0-r0) * pow(1.0-cos_theta, 5.0);
+}
+
 // Returns the vector v refracted at a boundary between two mediums.
 // n is the normal of the boundary and relative_eta is ratio of refractive
 // indices between the mediums (exited medium over entered medium).
 // The bool possible is set to true if a refraction can happen, and false
 // if total internal reflection occurs instead
-vec3 refract(vec3 v, vec3 n, float relative_eta, out bool possible) {
+vec3 refract(vec3 v, vec3 n, float relative_eta, inout uint rng_state, out bool possible) {
   float cos_theta = min(dot(-v, n), 1.0);
   float sin_theta = sqrt(1.0-cos_theta*cos_theta);
-  possible = relative_eta * sin_theta <= 1.0;
+
+  // Use Snell's law together with Schlick approximation so that refraction
+  // does not happen at steep angles
+  possible = relative_eta * sin_theta <= 1.0 && reflectance(cos_theta, relative_eta) <= random_float(rng_state);
+
   vec3 r_out_perp = relative_eta * (v + cos_theta*n);
   vec3 r_out_parallel = -sqrt(abs(1.0 - dot(r_out_perp, r_out_perp))) * n;
   return r_out_perp + r_out_parallel;
@@ -211,7 +221,7 @@ vec3 trace(Ray ray, inout uint rng_state) {
       bool can_refract = true;
       float r_i = material.refraction_index;
       r_i = mix(r_i, 1.0/r_i, float(closest_hit.front_face));
-      vec3 refract_dir = refract(ray.dir, closest_hit.normal, r_i, can_refract);
+      vec3 refract_dir = refract(ray.dir, closest_hit.normal, r_i, rng_state, can_refract);
 
       bool refraction = can_refract && material.refractive;
       ray.dir = mix(reflect_dir, refract_dir, float(refraction));

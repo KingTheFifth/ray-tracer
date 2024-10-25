@@ -26,10 +26,10 @@ Model *triangle_model;
 FBOstruct *prev_frame, *curr_frame;
 
 GLuint sphere_ubo;
-const int num_spheres = 8;
+const int num_spheres = 9;
 GLuint sphere_block_binding = 0;
 vec3 black = vec3(0.0, 0.0, 0.0);
-vec3 white = vec3(1.0, 1.0, 1.0);
+vec3 white = vec3(1.0, 0.9, 0.8);
 vec3 gray = white * 0.5;
 vec3 red = vec3(1.0, 0.0, 0.0);
 vec3 cyan = vec3(0.0, 0.7, 0.7);
@@ -43,6 +43,8 @@ Material cyan_funky = Material{cyan, 5.0f, green, 0.3f, blue, 0.1f, 0.0f};
 Material gray_metal = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.0f};
 Material gray_fuzz = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.6f};
 Material clear_glass =
+    Material{white, 0.0f, black, 0.6f, white, 0.9f, 0.0f, 1.5f};
+Material bubble =
     Material{white, 0.0f, black, 1.0f, white, 1.0f, 0.0f, 1.0f / 1.5f};
 
 Sphere spheres[num_spheres] = {
@@ -54,6 +56,7 @@ Sphere spheres[num_spheres] = {
     Sphere{vec3(-0.7, -0.25, -3.0), 0.25, gray_metal},
     Sphere{vec3(0.9, -0.5, -4.0), 0.5, gray_fuzz},
     Sphere{vec3(-0.5, -0.25, -1.0), 0.1, clear_glass},
+    Sphere{vec3(-0.5, -0.25, -1.0), 0.08, bubble},
 };
 
 void init(void) {
