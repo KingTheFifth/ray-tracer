@@ -33,27 +33,33 @@ struct Sphere {
   Material material;
 };
 
-// layout (std140, binding = 1) uniform SphereBlock {
-layout (std140) uniform SphereBlock {
-  Sphere spheres[10];
-};
+// Shader parameters ----------------------------------------------------------
 
 in vec2 out_tex_coord;
 out vec4 out_colour;
 
+// Screen parameters
 uniform uvec2 SCREEN_RESOLUTION;
-uniform int FRAME;
-uniform int NUM_SPHERES;
-uniform float CAMERA_DEPTH;
 uniform float ASPECT_RATIO;
-uniform int SAMPLES_PER_PIXEL;
-uniform float SAMPLE_JITTER_STRENGTH;
-uniform int MAX_BOUNCE_COUNT;
-
+uniform int FRAME;  // Frame number, used for rng seed and averaging frames
 uniform sampler2D prev_frame;
 
+
+// Uniforms for storing objects that rays can interact with
+uniform int NUM_SPHERES;
+layout (std140) uniform SphereBlock {
+  Sphere spheres[10];
+};
+
+// Parameters for camera and rays
+uniform float CAMERA_DEPTH;
+uniform float VFOV;
+uniform float DEFOCUS_ANGLE;
+uniform int SAMPLES_PER_PIXEL;
+uniform int MAX_BOUNCE_COUNT;
 const vec3 cam_pos = vec3(0.0, 0.0, 0.0);
 
+// Functions for randomness ---------------------------------------------------
 uint wang_hash(inout uint rng_state) {
   rng_state = uint(rng_state ^ uint(61)) ^ uint(rng_state >> uint(16));
   rng_state *= uint(9);
@@ -99,13 +105,16 @@ vec2 sample_circle(inout uint rng_state) {
   return point_on_circle * sqrt(random_float(rng_state));
 }
 
-// Creates a randomly jittered ray for this pixel
-// Useful for doing multiple ray samples per pixel
+// Functions for creating rays and handling their collisions ------------------
+
+// Creates a randomly jittered ray for this fragment
+// Useful for doing multiple ray samples per fragment
 Ray get_ray_sample(vec3 view_pos, inout uint rng_state) {
   Ray ray;
   ray.pos = cam_pos;
-  vec3 jitter = vec3(sample_square(rng_state), 0.0) * SAMPLE_JITTER_STRENGTH / float(SCREEN_RESOLUTION.x);
-  ray.dir = normalize(view_pos+jitter-ray.pos);
+  // vec3 jitter = vec3(sample_square(rng_state), 0.0) * SAMPLE_JITTER_STRENGTH;
+  // ray.dir = normalize(view_pos+jitter-ray.pos);
+  ray.dir = normalize(view_pos-ray.pos);
   return ray;
 }
 
@@ -116,6 +125,7 @@ vec3 get_background_light(Ray ray) {
   return (1.0-a)*vec3(1.0, 1.0, 1.0)+a*vec3(0.5,0.7,1.0);
 }
 
+// Calculates whether a given ray intersects with a given sphere
 Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
   Hit hit;
   hit.did_hit = false;
@@ -133,9 +143,13 @@ Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
   float discriminant = b * b - 4.0 * a * c;
   if (discriminant >= 0) {
 
-    // dist >= 0.001 rather than 0.0 is to combat shadow acne caused by 
+    // 0.001 dist threshold rather than 0.0 is to combat shadow acne caused by 
     // floating point inaccuracy
-    float dist = (-b-sqrt(discriminant)) / (2.0 * a);
+    float sqrtd = sqrt(discriminant);
+    float dist = (-b-sqrtd) / (2.0 * a);
+    // if (dist <= -0.001) {
+    //   dist = (-b+sqrtd) / (2.0 * a);
+    // }
     if (dist >= 0.001) {
       hit.did_hit = true;
       hit.pos = ray.pos + ray.dir * dist; 
@@ -143,15 +157,9 @@ Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
       hit.dist = dist;
       hit.material = sphere.material;
 
+      // Keep normals pointing against the ray and keep track of surface side
       hit.front_face = dot(ray.dir, hit.normal) <= 0.0;
-      // hit.normal = float(hit.front_face) *hit.normal + (1.0-float(hit.front_face))* (-hit.normal);
-      //hit.normal = sign(dot(ray.dir, hit.normal)) * hit.normal;
-      // if (hit.front_face) {
-      //   hit.normal = hit.normal;
-      // }
-      // else {
-      //   hit.normal = -hit.normal;
-      // }
+      hit.normal = mix(-hit.normal, hit.normal, float(hit.front_face));
     }
   }
   return hit;
@@ -170,6 +178,8 @@ Hit ray_collision(Ray ray) {
     return closest_hit;
 }
 
+
+// The actual ray tracing -----------------------------------------------------
 // Reflects a vector v in the axis given by vector n
 vec3 reflect(vec3 v, vec3 n) {
   return v - 2.0*dot(v, n) * n;
@@ -194,7 +204,7 @@ vec3 refract(vec3 v, vec3 n, float relative_eta, inout uint rng_state, out bool 
   // does not happen at steep angles
   possible = relative_eta * sin_theta <= 1.0 && reflectance(cos_theta, relative_eta) <= random_float(rng_state);
 
-  vec3 r_out_perp = relative_eta * (v + cos_theta*n);
+  vec3 r_out_perp = relative_eta * (v + cos_theta * n);
   vec3 r_out_parallel = -sqrt(abs(1.0 - dot(r_out_perp, r_out_perp))) * n;
   return r_out_perp + r_out_parallel;
 }
@@ -211,18 +221,22 @@ vec3 trace(Ray ray, inout uint rng_state) {
       ray.pos = closest_hit.pos;
       Material material = closest_hit.material;
 
-      // Bounce the ray (reflection)
+      // Calculate ray direction for a reflection bounce 
+      // (-> diffuse & specular light)
       vec3 diffuse_dir = normalize(closest_hit.normal + random_direction(rng_state));
-      vec3 specular_dir = normalize(reflect(ray.dir, closest_hit.normal)) + material.fuzz*random_direction(rng_state);
+      vec3 fuzz = material.fuzz * random_direction(rng_state);
+      vec3 specular_dir = normalize(reflect(ray.dir, closest_hit.normal)) + fuzz;
       float specular_bounce = float(material.specular_probability >= random_float(rng_state));
       vec3 reflect_dir = normalize(mix(diffuse_dir, specular_dir, material.smoothness * specular_bounce));
 
-      // Refract the ray
+      // Calculate ray direction for refraction (-> transparency)
       bool can_refract = true;
       float r_i = material.refraction_index;
       r_i = mix(r_i, 1.0/r_i, float(closest_hit.front_face));
-      vec3 refract_dir = refract(ray.dir, closest_hit.normal, r_i, rng_state, can_refract);
+      vec3 refract_dir = normalize(refract(ray.dir, closest_hit.normal, r_i, rng_state, can_refract));
 
+      // Decide between reflection or refraction based on material properties
+      // and whether a refraction is possible due to physical phenomena
       bool refraction = can_refract && material.refractive;
       ray.dir = mix(reflect_dir, refract_dir, float(refraction));
 
@@ -238,7 +252,7 @@ vec3 trace(Ray ray, inout uint rng_state) {
       ray_colour *= mix(material.colour, material.specular_colour, specular_bounce);
     }
     else {
-      // Ray bounced off into the sky
+      // Ray bounced off into the sky/void
       incoming_light += get_background_light(ray) * ray_colour;
       break;
     }
@@ -248,24 +262,34 @@ vec3 trace(Ray ray, inout uint rng_state) {
 }
 
 void main(void) {
-  // Get position of this fragment in view space
-  // Note that the depth is set so that each fragment resides in a plane 
-  // perpendicular to the camera
-  vec3 view_pos = vec3(out_tex_coord * 2.0 - 1.0, -CAMERA_DEPTH);
-  view_pos.y = view_pos.y / ASPECT_RATIO;
-
   // Generate a seed for rng using the view position and frame number
   // This gives each fragment an own unique rng seed that changes every frame
   uvec2 pixel_coord = uvec2(out_tex_coord * vec2(SCREEN_RESOLUTION));
   uint pixel_index = pixel_coord.y * SCREEN_RESOLUTION.x + pixel_coord.x;
   uint rng_state = pixel_index + uint(FRAME) * uint(719393);
 
+  // Calculate viewport dimensions depending on FOV
+  float fov_angle_rad = VFOV * 3.141592654 / 180.0;
+  float h = tan(fov_angle_rad / 2.0);
+  float v_height = 2.0 * h * CAMERA_DEPTH;
+  float v_width = v_height * ASPECT_RATIO;
+  vec3 v_uv = vec3(v_width, v_height, 1.0); // Viewport dimensions
+
+  // Calculate viewport position (pixel center) of this fragment
+  vec3 pixel_delta_uv = v_uv / vec3(SCREEN_RESOLUTION, 1.0);
+  vec3 v_upper_left = cam_pos - vec3(0.0, 0.0, CAMERA_DEPTH) - v_uv/2.0;
+  vec3 ij = vec3(out_tex_coord*vec2(SCREEN_RESOLUTION), 0.0); // pixel indices
+  vec3 jitter = vec3(sample_square(rng_state), 0.0);  // Jitter for antialiasing
+  vec3 view_pos = v_upper_left + 0.5*pixel_delta_uv + (ij+jitter)*pixel_delta_uv;
+
+  // Generate and trace several sample rays for this fragment
   vec3 incoming_light = vec3(0.0, 0.0, 0.0);
   for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
     Ray ray = get_ray_sample(view_pos, rng_state);
     incoming_light += trace(ray, rng_state);
   }
 
+  // Combine resulting fragment colour from each sample ray
   vec4 res_colour = vec4(incoming_light / float(SAMPLES_PER_PIXEL), 1.0);
 
   // Clamp
@@ -274,7 +298,8 @@ void main(void) {
   res_colour.z = max(min(res_colour.z, 1.0), 0.0);
   //res_colour.w = max(min(res_colour.w, 1.0), 0.0);
 
-  // Accumulate an average colour of this pixel using the previous frame
+  // Accumulate an average colour of this fragment using the previous frame
   float weight = 1.0 / float(FRAME + 1);
+  vec4 prev_colour = texture(prev_frame, out_tex_coord);
   out_colour = res_colour * weight + (1.0-weight)*texture(prev_frame, out_tex_coord);
 }

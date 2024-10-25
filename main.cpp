@@ -15,18 +15,19 @@
 // Globals
 
 // Window dimensions, needed for FBOs
-const int initWidth = 800, initHeight = 800;
+const double ASPECT_RATIO = 16.0 / 9.0;
+const int SCREEN_WIDTH = 800;
+const int SCREEN_HEIGHT = int(SCREEN_WIDTH / ASPECT_RATIO);
 const float DEPTH = 1.0f;
-const uint SAMPLES_PER_PIXEL = 20;
-const float SAMPLE_JITTER_STRENGTH = 3.0f;
-const int MAX_BOUNCE_COUNT = 20;
+const float VERTICAL_FOV = 90;
+const uint SAMPLES_PER_PIXEL = 10;
+const int MAX_BOUNCE_COUNT = 10;
 int frame = 0;
 GLuint tracer, plain_tex_shader;
 Model *triangle_model;
 FBOstruct *prev_frame, *curr_frame;
 
 GLuint sphere_ubo;
-const int num_spheres = 9;
 GLuint sphere_block_binding = 0;
 vec3 black = vec3(0.0, 0.0, 0.0);
 vec3 white = vec3(1.0, 0.9, 0.8);
@@ -47,16 +48,33 @@ Material clear_glass =
 Material bubble =
     Material{white, 0.0f, black, 1.0f, white, 1.0f, 0.0f, 1.0f / 1.5f};
 
+// const int num_spheres = 9;
+// Sphere spheres[num_spheres] = {
+//     Sphere{vec3(1.5, 0.5, -4.0), 0.5, red_glossy},
+//     Sphere{vec3(0.4, -0.4, -0.7), 0.1, green_matte},
+//     Sphere{vec3(-1.0, -0.25, -2.0), 0.25, cyan_funky},
+//     Sphere{vec3(0.0, -100.5, -1.0), 100, blue_matte},
+//     Sphere{vec3(0.0, -0.2, -2.0), 0.1, white_light},
+//     Sphere{vec3(-0.7, -0.25, -3.0), 0.25, gray_metal},
+//     Sphere{vec3(0.9, -0.5, -4.0), 0.5, gray_fuzz},
+//     Sphere{vec3(-0.5, -0.25, -1.0), 0.1, clear_glass},
+//     Sphere{vec3(-0.5, -0.25, -1.0), 0.08, bubble},
+// };
+
+vec3 brown = vec3(0.8, 0.6, 0.2);
+Material ground = Material{green, 0.0f, black, 0.0f, black, 0.0f, 0.0f};
+Material center = Material{blue, 0.0f, black, 0.0f, black, 0.0f, 0.0f};
+Material left = Material{white, 0.0f, black, 1.0f, white, 1.0f, 0.0f, 1.5f};
+Material bubble2 =
+    Material{white, 0.0f, black, 1.0f, white, 1.0f, 0.0f, 1.0 / 1.5f};
+Material right = Material{brown, 0.0f, black, 1.0f, brown, 0.8f, 1.0f};
+const int num_spheres = 5;
 Sphere spheres[num_spheres] = {
-    Sphere{vec3(1.5, 0.5, -4.0), 0.5, red_glossy},
-    Sphere{vec3(0.4, -0.4, -0.7), 0.1, green_matte},
-    Sphere{vec3(-1.0, -0.25, -2.0), 0.25, cyan_funky},
-    Sphere{vec3(0.0, -100.5, -1.0), 100, blue_matte},
-    Sphere{vec3(0.0, -0.2, -2.0), 0.1, white_light},
-    Sphere{vec3(-0.7, -0.25, -3.0), 0.25, gray_metal},
-    Sphere{vec3(0.9, -0.5, -4.0), 0.5, gray_fuzz},
-    Sphere{vec3(-0.5, -0.25, -1.0), 0.1, clear_glass},
-    Sphere{vec3(-0.5, -0.25, -1.0), 0.08, bubble},
+    Sphere{vec3(0.0, -100.5, -1.0), 100.0, ground},
+    Sphere{vec3(0.0, 0.0, -1.2), 0.5, center},
+    Sphere{vec3(-1.0, 0.0, -1.0), 0.5, left},
+    Sphere{vec3(-1.0, 0.0, -1.0), 0.4, bubble2},
+    Sphere{vec3(1.0, 0.0, -1.0), 0.5, right},
 };
 
 void init(void) {
@@ -74,8 +92,8 @@ void init(void) {
   printError("init shader");
 
   // Set up FBOs
-  curr_frame = initFBO(initWidth, initHeight, 0);
-  prev_frame = initFBO(initWidth, initHeight, 0);
+  curr_frame = initFBO(SCREEN_WIDTH, SCREEN_HEIGHT, 0);
+  prev_frame = initFBO(SCREEN_WIDTH, SCREEN_HEIGHT, 0);
 
   // Set up triangle used to cover the screen
   GLfloat triangle[] = {
@@ -121,16 +139,15 @@ void display(void) {
   useFBO(curr_frame, prev_frame, 0L);
   glUniform1i(glGetUniformLocation(tracer, "prev_frame"), 0);
   glUniform1i(glGetUniformLocation(tracer, "FRAME"), frame);
-  glUniform2ui(glGetUniformLocation(tracer, "SCREEN_RESOLUTION"), initWidth,
-               initHeight);
+  glUniform2ui(glGetUniformLocation(tracer, "SCREEN_RESOLUTION"), SCREEN_WIDTH,
+               SCREEN_HEIGHT);
   glUniform1i(glGetUniformLocation(tracer, "NUM_SPHERES"), num_spheres);
   glUniform1f(glGetUniformLocation(tracer, "CAMERA_DEPTH"), DEPTH);
+  glUniform1f(glGetUniformLocation(tracer, "VFOV"), VERTICAL_FOV);
   glUniform1f(glGetUniformLocation(tracer, "ASPECT_RATIO"),
-              (GLfloat)initWidth / initHeight);
+              (GLfloat)SCREEN_WIDTH / SCREEN_HEIGHT);
   glUniform1i(glGetUniformLocation(tracer, "SAMPLES_PER_PIXEL"),
               SAMPLES_PER_PIXEL);
-  glUniform1f(glGetUniformLocation(tracer, "SAMPLE_JITTER_STRENGTH"),
-              SAMPLE_JITTER_STRENGTH);
   glUniform1i(glGetUniformLocation(tracer, "MAX_BOUNCE_COUNT"),
               MAX_BOUNCE_COUNT);
 
@@ -161,7 +178,7 @@ int main(int argc, char *argv[]) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH | GLUT_DOUBLE);
   glutInitContextVersion(3, 2);
-  glutInitWindowSize(initWidth, initHeight);
+  glutInitWindowSize(SCREEN_WIDTH, SCREEN_HEIGHT);
   glutCreateWindow("GPU Ray tracer");
   glutDisplayFunc(display);
   glutRepeatingTimer(20);
