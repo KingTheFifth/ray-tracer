@@ -3,7 +3,7 @@
  * the same struct in tracer.frag. Padding and alignment needs to be correct
  * when uploading to GPU.
  * Pad everything so that the struct size is multiple of vec4 i.e. 4 floats.
- * It seems that vec3 and vec2 members need to be aligned on multiples of vec4
+ * vec3 needs to be aligned as vec4
  */
 #pragma once
 #include "VectorUtils4.h"

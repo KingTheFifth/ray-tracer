@@ -51,13 +51,18 @@ layout (std140) uniform SphereBlock {
   Sphere spheres[10];
 };
 
-// Parameters for camera and rays
-uniform float CAMERA_DEPTH;
+// Parameters for camera
+uniform vec3 CAM_POS;
+uniform vec3 CAM_FORWARD;
+uniform vec3 CAM_UP;
+uniform vec3 CAM_RIGHT;
 uniform float VFOV;
+uniform float FOCAL_LENGTH;
 uniform float DEFOCUS_ANGLE;
+
+// Parameters for rays
 uniform int SAMPLES_PER_PIXEL;
 uniform int MAX_BOUNCE_COUNT;
-const vec3 cam_pos = vec3(0.0, 0.0, 0.0);
 
 // Functions for randomness ---------------------------------------------------
 uint wang_hash(inout uint rng_state) {
@@ -107,14 +112,19 @@ vec2 sample_circle(inout uint rng_state) {
 
 // Functions for creating rays and handling their collisions ------------------
 
-// Creates a randomly jittered ray for this fragment
-// Useful for doing multiple ray samples per fragment
-Ray get_ray_sample(vec3 view_pos, inout uint rng_state) {
+// Creates a ray going from the camera to the viewport pixel position of this 
+// fragment. The direction of the ray is slightly jittered for anti-aliasing.
+Ray get_ray_sample(vec3 pixel_down_left, vec3 pixel_delta_u, vec3 pixel_delta_v,
+inout uint rng_state) {
+  vec3 ij = vec3(out_tex_coord * vec2(SCREEN_RESOLUTION), 0.0); // Pixel indices
+
+  // Add some jittering for anti-aliasing
+  vec3 jittered_ij = ij + vec3(sample_square(rng_state), 0.0);
+  vec3 pixel_world_pos = pixel_down_left + jittered_ij.x * pixel_delta_u + jittered_ij.y * pixel_delta_v;
+
   Ray ray;
-  ray.pos = cam_pos;
-  // vec3 jitter = vec3(sample_square(rng_state), 0.0) * SAMPLE_JITTER_STRENGTH;
-  // ray.dir = normalize(view_pos+jitter-ray.pos);
-  ray.dir = normalize(view_pos-ray.pos);
+  ray.pos = CAM_POS;
+  ray.dir = normalize(pixel_world_pos-ray.pos);
   return ray;
 }
 
@@ -268,24 +278,28 @@ void main(void) {
   uint pixel_index = pixel_coord.y * SCREEN_RESOLUTION.x + pixel_coord.x;
   uint rng_state = pixel_index + uint(FRAME) * uint(719393);
 
-  // Calculate viewport dimensions depending on FOV
+  // Calculate viewport dimensions depending on FOV and aspect ratio
   float fov_angle_rad = VFOV * 3.141592654 / 180.0;
   float h = tan(fov_angle_rad / 2.0);
-  float v_height = 2.0 * h * CAMERA_DEPTH;
+  float v_height = 2.0 * h * FOCAL_LENGTH;
   float v_width = v_height * ASPECT_RATIO;
-  vec3 v_uv = vec3(v_width, v_height, 1.0); // Viewport dimensions
 
-  // Calculate viewport position (pixel center) of this fragment
-  vec3 pixel_delta_uv = v_uv / vec3(SCREEN_RESOLUTION, 1.0);
-  vec3 v_upper_left = cam_pos - vec3(0.0, 0.0, CAMERA_DEPTH) - v_uv/2.0;
-  vec3 ij = vec3(out_tex_coord*vec2(SCREEN_RESOLUTION), 0.0); // pixel indices
-  vec3 jitter = vec3(sample_square(rng_state), 0.0);  // Jitter for antialiasing
-  vec3 view_pos = v_upper_left + 0.5*pixel_delta_uv + (ij+jitter)*pixel_delta_uv;
+  // Calculate veiwport edges
+  vec3 v_u = v_width * CAM_RIGHT;
+  vec3 v_v = v_height * CAM_UP;
+  vec3 v_uv = v_u+v_v;
+  vec3 pixel_delta_u = v_u / float(SCREEN_RESOLUTION.x);
+  vec3 pixel_delta_v = v_v / float(SCREEN_RESOLUTION.y);
+  vec3 pixel_delta_uv = pixel_delta_u + pixel_delta_v;
+
+  // Calculate world pos of the down left pixel center in the viewport
+  vec3 v_down_left = CAM_POS - FOCAL_LENGTH*CAM_FORWARD - v_uv/2.0;
+  vec3 pixel_dow_left = v_down_left + 0.5*pixel_delta_uv;
 
   // Generate and trace several sample rays for this fragment
   vec3 incoming_light = vec3(0.0, 0.0, 0.0);
   for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
-    Ray ray = get_ray_sample(view_pos, rng_state);
+    Ray ray = get_ray_sample(pixel_dow_left, pixel_delta_u, pixel_delta_v, rng_state);
     incoming_light += trace(ray, rng_state);
   }
 

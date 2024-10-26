@@ -18,14 +18,18 @@
 const double ASPECT_RATIO = 16.0 / 9.0;
 const int SCREEN_WIDTH = 800;
 const int SCREEN_HEIGHT = int(SCREEN_WIDTH / ASPECT_RATIO);
-const float DEPTH = 1.0f;
-const float VERTICAL_FOV = 90;
 const uint SAMPLES_PER_PIXEL = 10;
 const int MAX_BOUNCE_COUNT = 10;
 int frame = 0;
 GLuint tracer, plain_tex_shader;
 Model *triangle_model;
 FBOstruct *prev_frame, *curr_frame;
+
+// Camera parameters
+const float VERTICAL_FOV = 90;
+vec3 cam_pos = vec3(-2.0, 2.0, 1.0);
+vec3 cam_look_at = vec3(0.0, 0.0, -1.0);
+vec3 cam_up = vec3(0.0, 1.0, 0.0);
 
 GLuint sphere_ubo;
 GLuint sphere_block_binding = 0;
@@ -97,7 +101,7 @@ void init(void) {
 
   // Set up triangle used to cover the screen
   GLfloat triangle[] = {
-      -1.0f, -1.0f, DEPTH, 3.0f, -1.0f, DEPTH, -1.0f, 3.0f, DEPTH,
+      -1.0f, -1.0f, 0.0f, 3.0f, -1.0f, 0.0f, -1.0f, 3.0f, 0.0f,
   };
   GLfloat triangle_tex_coords[] = {
       0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 2.0f,
@@ -142,7 +146,6 @@ void display(void) {
   glUniform2ui(glGetUniformLocation(tracer, "SCREEN_RESOLUTION"), SCREEN_WIDTH,
                SCREEN_HEIGHT);
   glUniform1i(glGetUniformLocation(tracer, "NUM_SPHERES"), num_spheres);
-  glUniform1f(glGetUniformLocation(tracer, "CAMERA_DEPTH"), DEPTH);
   glUniform1f(glGetUniformLocation(tracer, "VFOV"), VERTICAL_FOV);
   glUniform1f(glGetUniformLocation(tracer, "ASPECT_RATIO"),
               (GLfloat)SCREEN_WIDTH / SCREEN_HEIGHT);
@@ -150,6 +153,19 @@ void display(void) {
               SAMPLES_PER_PIXEL);
   glUniform1i(glGetUniformLocation(tracer, "MAX_BOUNCE_COUNT"),
               MAX_BOUNCE_COUNT);
+
+  vec3 cam_forward = normalize(cam_pos - cam_look_at);
+  vec3 cam_right = normalize(cross(cam_up, cam_forward));
+  vec3 cam_up_adjusted = cross(cam_forward, cam_right);
+  GLfloat focal_length = Norm(cam_pos - cam_look_at);
+  glUniform3fv(glGetUniformLocation(tracer, "CAM_FORWARD"), 1,
+               (GLfloat *)&cam_forward);
+  glUniform3fv(glGetUniformLocation(tracer, "CAM_RIGHT"), 1,
+               (GLfloat *)&cam_right);
+  glUniform3fv(glGetUniformLocation(tracer, "CAM_UP"), 1,
+               (GLfloat *)&cam_up_adjusted);
+  glUniform3fv(glGetUniformLocation(tracer, "CAM_POS"), 1, (GLfloat *)&cam_pos);
+  glUniform1f(glGetUniformLocation(tracer, "FOCAL_LENGTH"), focal_length);
 
   DrawModel(triangle_model, tracer, "in_position", NULL, "in_tex_coord");
 
