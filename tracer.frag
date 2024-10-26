@@ -57,8 +57,8 @@ uniform vec3 CAM_FORWARD;
 uniform vec3 CAM_UP;
 uniform vec3 CAM_RIGHT;
 uniform float VFOV;
-uniform float FOCAL_LENGTH;
 uniform float DEFOCUS_ANGLE;
+uniform float FOCUS_DIST;
 
 // Parameters for rays
 uniform int SAMPLES_PER_PIXEL;
@@ -112,18 +112,21 @@ vec2 sample_circle(inout uint rng_state) {
 
 // Functions for creating rays and handling their collisions ------------------
 
-// Creates a ray going from the camera to the viewport pixel position of this 
-// fragment. The direction of the ray is slightly jittered for anti-aliasing.
+// Creates a ray originating from a defocus disk around the camera position,
+// directed toward a randomly jittered sample around the viewport pixel position 
+// for this fragmet.
 Ray get_ray_sample(vec3 pixel_down_left, vec3 pixel_delta_u, vec3 pixel_delta_v,
-inout uint rng_state) {
+vec3 defocus_u, vec3 defocus_v, inout uint rng_state) {
   vec3 ij = vec3(out_tex_coord * vec2(SCREEN_RESOLUTION), 0.0); // Pixel indices
 
   // Add some jittering for anti-aliasing
   vec3 jittered_ij = ij + vec3(sample_square(rng_state), 0.0);
   vec3 pixel_world_pos = pixel_down_left + jittered_ij.x * pixel_delta_u + jittered_ij.y * pixel_delta_v;
 
+  vec2 p = sample_circle(rng_state);
+
   Ray ray;
-  ray.pos = CAM_POS;
+  ray.pos = CAM_POS + p.x*defocus_u + p.y*defocus_v;
   ray.dir = normalize(pixel_world_pos-ray.pos);
   return ray;
 }
@@ -281,7 +284,7 @@ void main(void) {
   // Calculate viewport dimensions depending on FOV and aspect ratio
   float fov_angle_rad = VFOV * 3.141592654 / 180.0;
   float h = tan(fov_angle_rad / 2.0);
-  float v_height = 2.0 * h * FOCAL_LENGTH;
+  float v_height = 2.0 * h * FOCUS_DIST;
   float v_width = v_height * ASPECT_RATIO;
 
   // Calculate veiwport edges
@@ -292,14 +295,26 @@ void main(void) {
   vec3 pixel_delta_v = v_v / float(SCREEN_RESOLUTION.y);
   vec3 pixel_delta_uv = pixel_delta_u + pixel_delta_v;
 
+  // Calculate camera defocus
+  float defocus_angle_rad = DEFOCUS_ANGLE * 3.141592654 / 180.0;
+  float defocus_radius = FOCUS_DIST * tan(defocus_angle_rad/2.0);
+  vec3 defocus_u = CAM_RIGHT * defocus_radius;
+  vec3 defocus_v = CAM_UP * defocus_radius;
+
   // Calculate world pos of the down left pixel center in the viewport
-  vec3 v_down_left = CAM_POS - FOCAL_LENGTH*CAM_FORWARD - v_uv/2.0;
+  vec3 v_down_left = CAM_POS - FOCUS_DIST*CAM_FORWARD - v_uv/2.0;
   vec3 pixel_dow_left = v_down_left + 0.5*pixel_delta_uv;
 
   // Generate and trace several sample rays for this fragment
   vec3 incoming_light = vec3(0.0, 0.0, 0.0);
   for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
-    Ray ray = get_ray_sample(pixel_dow_left, pixel_delta_u, pixel_delta_v, rng_state);
+    Ray ray = get_ray_sample(
+      pixel_dow_left,
+      pixel_delta_u,
+      pixel_delta_v,
+      defocus_u,
+      defocus_v,
+      rng_state);
     incoming_light += trace(ray, rng_state);
   }
 
