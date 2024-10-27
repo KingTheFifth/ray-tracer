@@ -22,7 +22,7 @@ OpenGL, cmake
 Simply run `make` in the root directory of the project.
 
 ### Running
-Execute the binary `main`.
+Execute the binary `main.out`.
 
 ## Configuring the ray tracer
 Camera position, the number of rays per pixel etc can be changed by changing the global variables at the top of `main.cpp`. This requires rebuilding the program. I felt too lazy to parse these parameters from file.
