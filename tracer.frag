@@ -6,16 +6,19 @@ struct Ray {
 };
 
 struct Material {
-  vec3 colour;
+  vec4 albedo;
+  vec4 emission_colour;
   float emission_strength;
-  vec3 emission_colour;
-  float specular_probability;
-  vec3 specular_colour;
-  float smoothness;
-  float padding;
-  float fuzz;
-  float refraction_index;
-  bool refractive;
+  float specular_chance;
+  float specular_roughness;
+  float specular_fuzz;
+  vec4 specular_colour;
+  vec4 refraction_colour;
+  float ior;
+  float refraction_chance;
+  float refraction_roughness;
+  float f0;
+  float f90;
 };
 
 struct Hit {
@@ -28,9 +31,9 @@ struct Hit {
 };
 
 struct Sphere {
-  vec3 pos;
-  float radius;
   Material material;
+  vec4 pos;
+  float radius;
 };
 
 // Shader parameters ----------------------------------------------------------
@@ -59,6 +62,7 @@ uniform vec3 CAM_RIGHT;
 uniform float VFOV;
 uniform float DEFOCUS_ANGLE;
 uniform float FOCUS_DIST;
+uniform float EXPOSURE;
 
 // Parameters for rays
 uniform int SAMPLES_PER_PIXEL;
@@ -110,6 +114,45 @@ vec2 sample_circle(inout uint rng_state) {
   return point_on_circle * sqrt(random_float(rng_state));
 }
 
+
+// Functions for colour correction --------------------------------------------
+vec3 less_than(vec3 v, float value) {
+  return vec3(
+    float(v.x < value),
+    float(v.y < value),
+    float(v.z < value)
+  );
+}
+
+vec3 linear_to_srgb(vec3 rgb) {
+  rgb = clamp(rgb, vec3(0.0), vec3(1.0));  
+  return mix(
+    pow(rgb, vec3(1.0/2.4)) * 1.055 - 0.055,
+    rgb * 12.92,
+    less_than(rgb, 0.0031308)
+  );
+}
+
+vec3 srgb_to_linear(vec3 rgb) {
+  rgb = clamp(rgb, vec3(0.0), vec3(1.0));  
+  return mix(
+    pow(((rgb+0.055) / 1.055), vec3(2.4)),
+    rgb / 12.92,
+    less_than(rgb, 0.04045)
+  );
+}
+
+// Tone maps an HDR colour to LDR according to a luminance only fit
+// Code made by Krzysztof Narkowicz
+vec3 aces_film(vec3 hdr) {
+  float a = 2.51;
+  float b = 0.03;
+  float c = 2.43;
+  float d = 0.59;
+  float e = 0.14;
+  return clamp((hdr*(a*hdr + b)) / (hdr*(c*hdr + d) + e), 0.0, 1.0);
+}
+
 // Functions for creating rays and handling their collisions ------------------
 
 // Creates a ray originating from a defocus disk around the camera position,
@@ -146,7 +189,9 @@ Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
   // Sphere equation: dot(offs, offs) - r^2 = 0,
   // offs = sphere.center - ray.dir * t 
   // Rewritten as quadratic equation in t with coefficients a, b, c
-  vec3 offs = sphere.pos-ray.pos;
+  // Ignore the w component of sphere.pos as it is used just for byte alignment
+  //vec3 offs = sphere.pos.xyz-ray.pos;
+  vec3 offs = sphere.pos.xyz - ray.pos;
   float a = dot(ray.dir, ray.dir);
   float b = -2.0 * dot(ray.dir, offs);
   float c = dot(offs, offs) - sphere.radius*sphere.radius;
@@ -159,20 +204,21 @@ Hit ray_sphere_intersect(Ray ray, Sphere sphere) {
     // 0.001 dist threshold rather than 0.0 is to combat shadow acne caused by 
     // floating point inaccuracy
     float sqrtd = sqrt(discriminant);
+    bool front_face = true;
     float dist = (-b-sqrtd) / (2.0 * a);
-    // if (dist <= -0.001) {
-    //   dist = (-b+sqrtd) / (2.0 * a);
-    // }
+    if (dist <= -0.001) {
+      dist = (-b+sqrtd) / (2.0 * a);
+      front_face = false;
+    }
     if (dist >= 0.001) {
       hit.did_hit = true;
       hit.pos = ray.pos + ray.dir * dist; 
-      hit.normal = normalize(hit.pos - sphere.pos);
+      //hit.normal = normalize(hit.pos - sphere.pos.xyz); // Outward pointing normals
+      hit.normal = normalize(hit.pos - sphere.pos.xyz) * (front_face ? 1.0 : -1.0);
       hit.dist = dist;
       hit.material = sphere.material;
-
-      // Keep normals pointing against the ray and keep track of surface side
-      hit.front_face = dot(ray.dir, hit.normal) <= 0.0;
-      hit.normal = mix(-hit.normal, hit.normal, float(hit.front_face));
+      //hit.front_face = dot(ray.dir, hit.normal) <= 0.0;
+      hit.front_face = front_face;
     }
   }
   return hit;
@@ -193,76 +239,140 @@ Hit ray_collision(Ray ray) {
 
 
 // The actual ray tracing -----------------------------------------------------
-// Reflects a vector v in the axis given by vector n
-vec3 reflect(vec3 v, vec3 n) {
-  return v - 2.0*dot(v, n) * n;
-}
-
 float reflectance(float cos_theta, float refraction_index) {
   float r0 = (1.0 - refraction_index) / (1.0 + refraction_index);
   r0 = r0*r0;
   return r0 + (1.0-r0) * pow(1.0-cos_theta, 5.0);
 }
 
-// Returns the vector v refracted at a boundary between two mediums.
-// n is the normal of the boundary and relative_eta is ratio of refractive
-// indices between the mediums (exited medium over entered medium).
-// The bool possible is set to true if a refraction can happen, and false
-// if total internal reflection occurs instead
-vec3 refract(vec3 v, vec3 n, float relative_eta, inout uint rng_state, out bool possible) {
-  float cos_theta = min(dot(-v, n), 1.0);
-  float sin_theta = sqrt(1.0-cos_theta*cos_theta);
+float fresnel_reflectance(float ior_outer, float ior_inner, vec3 n, vec3 ray_dir, float f0, float f90) {
+  float r0 = (ior_outer - ior_inner) / (ior_outer + ior_inner);
+  r0 *= r0;
+  float cos_x = -dot(n, ray_dir);
+  if (ior_outer > ior_inner) {
+    float ior = ior_outer / ior_inner;
+    float sin_t2 = ior * ior * (1.0 - cos_x*cos_x);
 
-  // Use Snell's law together with Schlick approximation so that refraction
-  // does not happen at steep angles
-  possible = relative_eta * sin_theta <= 1.0 && reflectance(cos_theta, relative_eta) <= random_float(rng_state);
-
-  vec3 r_out_perp = relative_eta * (v + cos_theta * n);
-  vec3 r_out_parallel = -sqrt(abs(1.0 - dot(r_out_perp, r_out_perp))) * n;
-  return r_out_perp + r_out_parallel;
+    if (sin_t2 > 1.0) {
+      return f90;
+    }
+    cos_x = sqrt(1.0-sin_t2);
+  }
+  float x = 1.0-cos_x;
+  float ret = r0 + (1.0-r0) * x*x*x*x*x;
+  return mix(f0, f90, ret);
 }
 
 // Returns the incoming light from this ray
 vec3 trace(Ray ray, inout uint rng_state) {
-  vec3 incoming_light = vec3(0.0, 0.0, 0.0);
-  vec3 ray_colour = vec3(1.0, 1.0, 1.0);
+  vec3 incoming_light = vec3(0.0);
+  vec3 ray_colour = vec3(1.0);
 
   for (int b = 0; b < MAX_BOUNCE_COUNT; b++) {
-    Hit closest_hit = ray_collision(ray);
+    Hit hit = ray_collision(ray);
 
-    if (closest_hit.did_hit) {
-      ray.pos = closest_hit.pos;
-      Material material = closest_hit.material;
+    if (hit.did_hit) {
+      ray.pos = hit.pos;
+      Material material = hit.material;
 
-      // Calculate ray direction for a reflection bounce 
-      // (-> diffuse & specular light)
-      vec3 diffuse_dir = normalize(closest_hit.normal + random_direction(rng_state));
-      vec3 fuzz = material.fuzz * random_direction(rng_state);
-      vec3 specular_dir = normalize(reflect(ray.dir, closest_hit.normal)) + fuzz;
-      float specular_bounce = float(material.specular_probability >= random_float(rng_state));
-      vec3 reflect_dir = normalize(mix(diffuse_dir, specular_dir, material.smoothness * specular_bounce));
+      // Absorption when the ray hits inside an object
+      // Uses Beer's law
+      if (!hit.front_face) {
+        ray_colour *= exp(-material.refraction_colour.xyz * hit.dist);
+      }
+
+      // Calculate chances for a diffuse bounce, specular bounce or refraction
+      float specular_chance = material.specular_chance;
+      float refraction_chance = material.refraction_chance;
+      float ray_probability = 1.0;
+      if (specular_chance > 0.0) {
+        specular_chance = fresnel_reflectance(
+          // mix(material.ior_outer, material.ior_inner, float(!hit.front_face)),
+          // mix(material.ior_outer, material.ior_inner, float(hit.front_face)),
+          mix(material.ior, 1.0, float(hit.front_face)),
+          mix(material.ior, 1.0, float(!hit.front_face)),
+          hit.normal,
+          ray.dir,
+          material.specular_chance,
+          material.f90
+        );
+        float chance_multiplier = (1.0-specular_chance) / (1.0 - material.specular_chance);
+        refraction_chance *= chance_multiplier;
+      }
+
+      // Choose which type of bounce to do for the ray
+      float do_specular = 0.0;
+      float do_refraction = 0.0;
+      float rng_roll = random_float(rng_state);
+      if (specular_chance > 0.0 && rng_roll < specular_chance) {
+        do_specular = 1.0;
+        ray_probability = specular_chance;
+      }
+      else if (refraction_chance > 0.0 && rng_roll < specular_chance + refraction_chance) {
+        do_refraction = 1.0;
+        ray_probability = refraction_chance;
+      }
+      else {
+        ray_probability = 1.0 - specular_chance - refraction_chance;
+      }
+
+      // Avoid divide by zero
+      ray_probability = max(ray_probability, 0.001);
+
+      // Nudge the ray position slightly along the surface normal to avoid 
+      // incorrect intersections when the ray bounces
+      if (do_refraction == 1.0) {
+        ray.pos -= hit.normal * 0.01;
+      }
+      else {
+        ray.pos += hit.normal * 0.01;
+      }
+
+      // Calculate ray direction for a diffuse bounce
+      vec3 diffuse_dir = normalize(hit.normal + random_direction(rng_state));
+
+      // Calculate ray direction for reflection bounce -> specularity
+      vec3 specular_fuzz = material.specular_fuzz * random_direction(rng_state);
+      vec3 specular_dir = normalize(reflect(ray.dir, hit.normal) + specular_fuzz);
+      specular_dir = normalize(mix(specular_dir, diffuse_dir, material.specular_roughness * material.specular_roughness));
 
       // Calculate ray direction for refraction (-> transparency)
-      bool can_refract = true;
-      float r_i = material.refraction_index;
-      r_i = mix(r_i, 1.0/r_i, float(closest_hit.front_face));
-      vec3 refract_dir = normalize(refract(ray.dir, closest_hit.normal, r_i, rng_state, can_refract));
+      // float r_i = material.ior_outer / material.ior_inner;
+      // r_i = mix(1.0/r_i, r_i, float(hit.front_face));
+      float r_i = mix(material.ior, 1.0/material.ior, float(hit.front_face));
+      vec3 refract_dir = refract(ray.dir, hit.normal, r_i);
+      vec3 refraction_fuzz = normalize(-hit.normal + random_direction(rng_state));
+      refract_dir = normalize(mix(refract_dir, refraction_fuzz, material.refraction_roughness*material.refraction_roughness));
 
-      // Decide between reflection or refraction based on material properties
-      // and whether a refraction is possible due to physical phenomena
-      bool refraction = can_refract && material.refractive;
-      ray.dir = mix(reflect_dir, refract_dir, float(refraction));
+      // Set the ray direction depending on bounce type
+      ray.dir = mix(diffuse_dir, specular_dir, do_specular);
+      ray.dir = mix(ray.dir, refract_dir, do_refraction);
 
       // Try to catch bad ray directions that would lead to NaN or infinity
       float tol = 0.000001;
       if (abs(ray.dir.x) < tol && abs(ray.dir.y) < tol && abs(ray.dir.z) < tol) {
-        ray.dir = closest_hit.normal;
+        ray.dir = hit.normal;
       }
 
-      // Update light
-      vec3 emitted_light = material.emission_colour * material.emission_strength;
+      // Update light, discard the w component of the vec4 material colours 
+      // as it is only used for proper byte aligment
+      vec3 emitted_light = material.emission_colour.xyz * material.emission_strength;
       incoming_light += emitted_light * ray_colour;
-      ray_colour *= mix(material.colour, material.specular_colour, specular_bounce);
+
+      // Ray colour is only affected by refraction when hitting the next face 
+      // This is to be able to do absorption over distance within an object
+      if (do_refraction == 0.0) {
+        ray_colour *= mix(material.albedo.xyz, material.specular_colour.xyz, do_specular);
+      }
+
+      ray_colour /= ray_probability;
+
+      // Random early termination of rays for better performance
+      float p = max(ray_colour.x, max(ray_colour.y, ray_colour.z));
+      if (random_float(rng_state) > p) break;
+
+      // Make up for 'energy loss' from early termination 
+      ray_colour *= 1.0/max(p, 0.001);
     }
     else {
       // Ray bounced off into the sky/void
@@ -306,7 +416,7 @@ void main(void) {
   vec3 pixel_dow_left = v_down_left + 0.5*pixel_delta_uv;
 
   // Generate and trace several sample rays for this fragment
-  vec3 incoming_light = vec3(0.0, 0.0, 0.0);
+  vec3 incoming_light = vec3(0.0);
   for (int s = 0; s < SAMPLES_PER_PIXEL; s++) {
     Ray ray = get_ray_sample(
       pixel_dow_left,
@@ -319,16 +429,15 @@ void main(void) {
   }
 
   // Combine resulting fragment colour from each sample ray
-  vec4 res_colour = vec4(incoming_light / float(SAMPLES_PER_PIXEL), 1.0);
+  vec3 res_colour = incoming_light.xyz / float(SAMPLES_PER_PIXEL);
 
-  // Clamp
-  res_colour.x = max(min(res_colour.x, 1.0), 0.0);
-  res_colour.y = max(min(res_colour.y, 1.0), 0.0);
-  res_colour.z = max(min(res_colour.z, 1.0), 0.0);
-  //res_colour.w = max(min(res_colour.w, 1.0), 0.0);
+  // Apply exposure, tone map then correct the colours to sRGB to display properly
+  res_colour = aces_film(EXPOSURE * res_colour);
+  vec4 res_srgb_colour = vec4(linear_to_srgb(res_colour), 1.0);
+
 
   // Accumulate an average colour of this fragment using the previous frame
   float weight = 1.0 / float(FRAME + 1);
   vec4 prev_colour = texture(prev_frame, out_tex_coord);
-  out_colour = res_colour * weight + (1.0-weight)*texture(prev_frame, out_tex_coord);
+  out_colour = mix(prev_colour, res_srgb_colour, weight);
 }

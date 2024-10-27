@@ -3,6 +3,7 @@
 
 #include <GL/gl.h>
 #include <GL/glext.h>
+#include <cstdlib>
 #define MAIN
 #include "GL_utilities.h"
 #include "LittleOBJLoader.h"
@@ -30,63 +31,19 @@ Model *triangle_model;
 FBOstruct *prev_frame, *curr_frame;
 
 // Camera parameters
-const float VERTICAL_FOV = 20;
-vec3 cam_pos = vec3(-2.0, 2.0, 1.0);
+const float VERTICAL_FOV = 60;
+vec3 cam_pos = vec3(-2.0, 0.2, 1.0);
 vec3 cam_look_at = vec3(0.0, 0.0, -1.0);
 vec3 cam_up = vec3(0.0, 1.0, 0.0);
-float defocus_angle = 10.0;
-float focus_dist = 3.4;
+float defocus_angle = 0.9;
+float focus_dist = 2.7;
+float EXPOSURE = 0.4;
 
+// Sending sphere data to the GPU
 GLuint sphere_ubo;
 GLuint sphere_block_binding = 0;
-vec3 black = vec3(0.0, 0.0, 0.0);
-vec3 white = vec3(1.0, 0.9, 0.8);
-vec3 gray = white * 0.5;
-vec3 red = vec3(1.0, 0.0, 0.0);
-vec3 cyan = vec3(0.0, 0.7, 0.7);
-vec3 green = vec3(0.0, 0.5, 0.0);
-vec4 blue = vec3(0.0, 0.0, 0.5);
-Material red_glossy = Material{red, 0.0f, black, 0.3f, white, 0.7f, 0.0f};
-Material green_matte = Material{green, 0.0f, black, 0.0f, black, 1.0f, 0.0f};
-Material blue_matte = Material{blue, 0.0f, black, 0.0f, black, 1.0f, 0.0f};
-Material white_light = Material{black, 100.0f, white, 0.0f, black, 0.0f, 0.0f};
-Material cyan_funky = Material{cyan, 5.0f, green, 0.3f, blue, 0.1f, 0.0f};
-Material gray_metal = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.0f};
-Material gray_fuzz = Material{gray, 0.0f, black, 1.0f, white, 1.0f, 0.6f};
-Material clear_glass =
-    Material{white, 0.0f, black, 0.6f, white, 0.9f, 0.0f, 1.5f};
-Material bubble =
-    Material{white, 0.0f, black, 1.0f, white, 1.0f, 0.0f, 1.0f / 1.5f};
-
-// const int num_spheres = 9;
-// Sphere spheres[num_spheres] = {
-//     Sphere{vec3(1.5, 0.5, -4.0), 0.5, red_glossy},
-//     Sphere{vec3(0.4, -0.4, -0.7), 0.1, green_matte},
-//     Sphere{vec3(-1.0, -0.25, -2.0), 0.25, cyan_funky},
-//     Sphere{vec3(0.0, -100.5, -1.0), 100, blue_matte},
-//     // Sphere{vec3(0.0, -0.2, -2.0), 0.1, white_light},
-//     Sphere{vec3(0.0, 10.0, -2.0), 2.0, white_light},
-//     Sphere{vec3(-0.7, -0.25, -3.0), 0.25, gray_metal},
-//     Sphere{vec3(0.9, -0.5, -4.0), 0.5, gray_fuzz},
-//     Sphere{vec3(-0.5, -0.25, -1.0), 0.1, clear_glass},
-//     Sphere{vec3(-0.5, -0.25, -1.0), 0.08, bubble},
-// };
-
-vec3 brown = vec3(0.8, 0.6, 0.2);
-Material ground = Material{green, 0.0f, black, 0.0f, black, 0.0f, 0.0f};
-Material center = Material{blue, 0.0f, black, 0.0f, black, 0.0f, 0.0f};
-Material left = Material{white, 0.0f, black, 1.0f, white, 1.0f, 0.0f, 1.5f};
-Material bubble2 =
-    Material{white, 0.0f, black, 1.0f, white, 1.0f, 0.0f, 1.0 / 1.5f};
-Material right = Material{brown, 0.0f, black, 1.0f, brown, 0.8f, 1.0f};
-const int num_spheres = 5;
-Sphere spheres[num_spheres] = {
-    Sphere{vec3(0.0, -100.5, -1.0), 100.0, ground},
-    Sphere{vec3(0.0, 0.0, -1.2), 0.5, center},
-    Sphere{vec3(-1.0, 0.0, -1.0), 0.5, left},
-    Sphere{vec3(-1.0, 0.0, -1.0), 0.4, bubble2},
-    Sphere{vec3(1.0, 0.0, -1.0), 0.5, right},
-};
+Sphere spheres[15];
+GLuint num_spheres = 0;
 
 void init(void) {
   dumpInfo();
@@ -119,6 +76,47 @@ void init(void) {
       LoadDataToModel((vec3 *)triangle, NULL, (vec2 *)triangle_tex_coords, NULL,
                       triangle_indices, 3, 3);
   printError("load models");
+  vec3 white = vec3(1.0, 1.0, 1.0);
+  vec3 red = vec3(1.2, 0.2, 0.1);
+  vec3 green = vec3(0.05, 0.5, 0.05);
+  vec3 gold = vec3(0.8, 0.6, 0.2);
+  vec3 blue = vec3(0.1, 0.3, 0.8);
+  vec3 purple = vec3(0.7, 0.1, 0.7);
+  vec3 pink = vec3(0.8, 0.3, 0.5);
+  Material ground = Material::init_diffuse(green);
+  Material center = Material::init_diffuse(red);
+  // Note: setting reflection roughness to 0 for either 'left' or 'bubble'
+  // leads to weird refraction for some mysterious reason
+  Material left =
+      Material::init_dielectric(white, 1.5f, 1.0f, 0.2f, red, white * 0.8);
+  Material bubble =
+      Material::init_dielectric(white, 1.0 / 1.5f, 1.0f, 0.001f, white, white);
+  Material right = Material::init_specular(gold, gold, 1.0f, 0.2f, 0.3f);
+  Material light = Material::init_light(white * 0.8, 100.0);
+  Material clear_glass =
+      Material::init_dielectric(white, 1.5, 1.0, 0.0, white, white);
+  Material purple_glass = Material::init_dielectric(vec3(0.1, 3.0, 0.1), 1.1,
+                                                    0.8, 0.1, white, white);
+  Material purple_metal = Material::init_specular(blue, purple, 0.8, 0.1, 0.0);
+  Material pink_marble =
+      Material::init_specular(pink, white * 0.8, 0.02, 0.01, 0.01);
+  pink_marble =
+      Material::init_dielectric(white, 2.0, 0.0, 0.0, pink, white * 0.8);
+
+  // Set up scene with spheres
+  num_spheres = 11;
+  spheres[0] = Sphere{vec3(0.0, -100.515, -1.0), 100.0, ground};
+  spheres[1] = Sphere{vec3(0.0, 0.0, -1.2), 0.5, center};
+  spheres[2] = Sphere{vec3(-1.0, 0.0, -1.0), 0.5, left};
+  spheres[3] = Sphere{vec3(-1.0, 0.0, -1.0), 0.4, bubble};
+  spheres[4] = Sphere{vec3(1.0, 0.0, -1.0), 0.5, right};
+  spheres[5] = Sphere{vec3(0.0, 10.0, 7.0), 1.0, light};
+  spheres[6] = Sphere{vec3(0.0, -0.25, 0.0), 0.25, clear_glass};
+  spheres[7] = Sphere{vec3(-0.7, -0.2, 0.0), 0.125, purple_glass};
+  spheres[8] =
+      Sphere{vec3(-1.5, -0.3, -4.5), 0.3, Material::init_diffuse(blue)};
+  spheres[9] = Sphere{vec3(-1.9, -0.39, -1.3), 0.125, pink_marble};
+  spheres[10] = Sphere{vec3(-0.6, -0.385, 0.7), 0.125, purple_metal};
 
   // Create a UBO (uniform buffer object) containing array of spheres
   glGenBuffers(1, &sphere_ubo);
@@ -174,6 +172,7 @@ void display(void) {
   glUniform3fv(glGetUniformLocation(tracer, "CAM_POS"), 1, (GLfloat *)&cam_pos);
   glUniform1f(glGetUniformLocation(tracer, "DEFOCUS_ANGLE"), defocus_angle);
   glUniform1f(glGetUniformLocation(tracer, "FOCUS_DIST"), focus_dist);
+  glUniform1f(glGetUniformLocation(tracer, "EXPOSURE"), EXPOSURE);
 
   DrawModel(triangle_model, tracer, "in_position", NULL, "in_tex_coord");
 
@@ -205,7 +204,7 @@ int main(int argc, char *argv[]) {
   glutInitWindowSize(SCREEN_WIDTH, SCREEN_HEIGHT);
   glutCreateWindow("GPU Ray tracer");
   glutDisplayFunc(display);
-  glutRepeatingTimer(20);
+  glutRepeatingTimer(40);
 
   init();
   glutMainLoop();
